@@ -13,7 +13,8 @@ data class EmployeeLoginRequest(
 
 data class OrgLoginRequest(
     val phone: String,
-    val selected_date: String
+    val selected_date: String,
+    val otp: String
 )
 
 data class ApiError(
