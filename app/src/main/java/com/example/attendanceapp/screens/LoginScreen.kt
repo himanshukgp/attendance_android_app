@@ -259,7 +259,6 @@ fun LoginScreen(
                                                     val json = Gson().toJson(response)
                                                     DataStoreManager.saveEmployee(context, json)
                                                     EmployeeDataManager.setEmployeeData(response)
-                                                    scheduleLogStatusWorker(context)
                                                     onEmployeeLogin(response)
                                                 },
                                                 onError = { error ->
@@ -350,7 +349,6 @@ private fun performEmployeeLogin(
                 Log.d("LoginScreen", "Navigating to employee account screen")
                 EmployeeDataManager.setEmployeeData(response)
                 DataStoreManager.saveEmployee(context, Gson().toJson(response))
-                scheduleLogStatusWorker(context)
                 onSuccess(response)
             }
         } catch (e: retrofit2.HttpException) {
@@ -392,13 +390,4 @@ private fun performEmployeeLogin(
             }
         }
     }
-}
-
-fun scheduleLogStatusWorker(context: Context) {
-    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
-    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-        "log_status_worker",
-        ExistingPeriodicWorkPolicy.UPDATE,
-        workRequest
-    )
 }
