@@ -11,6 +11,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import android.location.Location as AndroidLocation
+import android.location.LocationManager
 
 class LocationUtils(private val context: Context) {
     private val fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
@@ -43,6 +44,11 @@ class LocationUtils(private val context: Context) {
         awaitClose {
             fusedLocationClient.removeLocationUpdates(locationCallback)
         }
+    }
+
+    fun isLocationEnabled(): Boolean {
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) || locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
     }
 
     private fun hasLocationPermission(): Boolean {
