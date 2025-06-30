@@ -1,5 +1,6 @@
 package com.example.attendanceapp.screens
 
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,20 +13,28 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -33,42 +42,97 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.example.attendanceapp.data.DataStoreManager
+import com.example.attendanceapp.data.OrgDataManager
+import com.example.attendanceapp.worker.LogStatusWorker
+import java.util.concurrent.TimeUnit
+import android.util.Log
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrgDashboardScreen(navController: NavController) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val orgData = OrgDataManager.getOrgData()
+    val context = LocalContext.current
+    var isLoggingEnabled by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Organization Account", fontWeight = FontWeight.Bold) })
+            TopAppBar(
+                title = { Text(orgData?.orgName ?: "Organization Account", fontWeight = FontWeight.Bold) },
+                actions = {
+                    Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = isLoggingEnabled,
+                        onCheckedChange = {
+                            isLoggingEnabled = it
+                            if (it) {
+                                Log.d("OrgDashboardScreen", "Toggle ON: Scheduling worker.")
+                                scheduleOrgLogStatusWorker(context)
+                            } else {
+                                Log.d("OrgDashboardScreen", "Toggle OFF: Cancelling worker.")
+                                WorkManager.getInstance(context).cancelUniqueWork("log_status_worker_org")
+                            }
+                        },
+                        modifier = Modifier.height(20.dp)
+                    )
+                    IconButton(onClick = { /* TODO: Refresh action */ }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    }
+                }
+            )
         },
         bottomBar = {
-            // Using the same bottom bar as OrgAttendanceScreen for consistency
             OrgBottomBar(navController, currentRoute)
         }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .padding(16.dp)
-                .fillMaxSize()
-        ) {
-            InfoRow("Login Message", "Logged In Successfully")
-            InfoRow("Organization Name", "Navi")
-            InfoRow("Admin Title", "Tenda Web Master")
-            InfoRow("SSID", "ACT102726546373")
-            InfoRow("Latitude", "12.985366")
-            InfoRow("Longitude", "77.7261836")
-            InfoRow("Employee count", "16")
-            Spacer(Modifier.weight(1f)) // Pushes the button to the bottom
-            Button(
-                onClick = { navController.navigate("login") },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+        if (orgData != null) {
+            Column(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .padding(16.dp)
+                    .fillMaxSize()
             ) {
-                Text("Log Out", color = Color.White)
+                InfoRow("Login Message", orgData.message)
+                InfoRow("Admin Title", orgData.orgAdminTitle)
+                InfoRow("SSID", orgData.orgSsid)
+                InfoRow("Location", "${orgData.orgLat}, ${orgData.orgLon}")
+                InfoRow("Total Employees", orgData.employeeCount.toString())
+                InfoRow("Present Today", orgData.employeePresent.toString())
+                InfoRow("Absent Today", orgData.employeeAbsent.toString())
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = {
+                        OrgDataManager.clearOrgData()
+                        DataStoreManager.clearOrg(context)
+                        navController.navigate("login") {
+                            popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) {
+                    Text("Log Out", color = Color.White)
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("No organization data found. Please log in again.")
+                Button(onClick = { navController.navigate("login") }) {
+                    Text("Go to Login")
+                }
             }
         }
     }
@@ -94,31 +158,15 @@ fun InfoRow(label: String, value: String) {
     }
 }
 
-// Copied from OrgAttendanceScreen to avoid complex dependencies
-// In a larger app, this would be moved to a shared file.
-//@Composable
-//fun OrgBottomBar(navController: NavController, currentRoute: String?) {
-//    NavigationBar {
-//        NavigationBarItem(
-//            selected = currentRoute == "orgDashboard",
-//            icon = { Icon(Icons.Default.Person, contentDescription = "Dashboard") },
-//            label = { Text("Dashboard") },
-//            onClick = { navController.navigate("orgDashboard") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
-//        )
-//        NavigationBarItem(
-//            selected = currentRoute == "orgAttendance",
-//            icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Attendance") },
-//            label = { Text("Attendance") },
-//            onClick = { navController.navigate("orgAttendance") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
-//        )
-//        NavigationBarItem(
-//            selected = currentRoute == "orgSummary",
-//            icon = { Icon(Icons.Default.BarChart, contentDescription = "Summary") },
-//            label = { Text("Summary") },
-//            onClick = { navController.navigate("orgSummary") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
-//        )
-//    }
-//}
+private fun scheduleOrgLogStatusWorker(context: Context) {
+    Log.d("OrgDashboardScreen", "Scheduling organization log status worker")
+    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
+    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        "log_status_worker_org",
+        ExistingPeriodicWorkPolicy.REPLACE,
+        workRequest
+    )
+}
 
 @Preview(showBackground = true)
 @Composable
