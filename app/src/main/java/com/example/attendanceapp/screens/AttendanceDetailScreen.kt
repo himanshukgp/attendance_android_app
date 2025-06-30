@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -36,7 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -45,9 +43,9 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.attendanceapp.data.EmployeeDataManager
 
-// Data class to hold shift information
-data class Shift(
+data class UiShift(
     val name: String,
     val startTime: String,
     val inOfficeDuration: String,
@@ -55,14 +53,14 @@ data class Shift(
     val outOfOfficeDuration: String?
 )
 
-// Sample data based on the image
+// Sample data based on the image - will be replaced with actual API data
 val sampleShifts = listOf(
-    Shift("Shift 1", "11:40:44", "2.06 hrs", "13:44:12", "Out for 1.2 hrs"),
-    Shift("Shift 2", "14:56:12", "0.48 hrs", "15:25:00", "Out for 1.92 hrs"),
-    Shift("Shift 3", "17:20:12", "0.24 hrs", "17:34:36", "Out for 0.22 hrs"),
-    Shift("Shift 4", "17:47:34", "0.29 hrs", "18:04:51", "Out for 0.17 hrs"),
-    Shift("Shift 5", "18:14:55", "0.17 hrs", "18:25:00", "Out for 0.04 hrs"),
-    Shift("Shift 6", "18:27:22", "0.06 hrs", "18:30:55", "Out for -- hrs")
+    UiShift("Shift 1", "11:40:44", "2.06 hrs", "13:44:12", null),
+    UiShift("Shift 2", "14:56:12", "0.48 hrs", "15:25:00", null),
+    UiShift("Shift 3", "17:20:12", "0.24 hrs", "17:34:36", null),
+    UiShift("Shift 4", "17:47:34", "0.29 hrs", "18:04:51", null),
+    UiShift("Shift 5", "18:14:55", "0.17 hrs", "18:25:00", null),
+    UiShift("Shift 6", "18:27:22", "0.06 hrs", "18:30:55", null)
 )
 
 val timelineData = listOf(
@@ -73,6 +71,42 @@ val timelineData = listOf(
     Color.Green to 0.05f
 )
 
+@Composable
+fun getShiftsFromApiData(): List<UiShift> {
+    val apiShifts = EmployeeDataManager.getShifts()
+    return if (!apiShifts.isNullOrEmpty()) {
+        apiShifts.map { (shiftName, shiftData) ->
+            UiShift(
+                name = shiftName,
+                startTime = shiftData.inn,
+                inOfficeDuration = "${shiftData.ti} hrs",
+                endTime = shiftData.out,
+                outOfOfficeDuration = "Out for ${shiftData.to} hrs"
+            )
+        }
+    } else {
+        // fallback sample data
+        listOf()
+    }
+}
+
+@Composable
+fun getTimelineDataFromApi(): List<Pair<Color, Float>> {
+    val apiShifts = EmployeeDataManager.getShifts()
+    return if (!apiShifts.isNullOrEmpty()) {
+        // Create timeline based on actual shift data
+        val timeline = mutableListOf<Pair<Color, Float>>()
+        apiShifts.values.forEach { shift ->
+            // Add green for in-office time
+            timeline.add(Color.Green to (shift.ti.toFloatOrNull() ?: 0f) / 8f)
+            // Add red for out-of-office time
+            timeline.add(Color.Red to (shift.to.toFloatOrNull() ?: 0f) / 8f)
+        }
+        timeline
+    } else {
+        timelineData // Fallback to sample data
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -146,11 +180,11 @@ fun AttendanceDetailScreen(navController: NavController) {
             Spacer(modifier = Modifier.height(16.dp))
             AttendanceInfoBar()
             Spacer(modifier = Modifier.height(16.dp))
-            TimelineBar(data = timelineData, height = 12.dp)
+            TimelineBar(data = getTimelineDataFromApi(), height = 12.dp)
             Spacer(modifier = Modifier.height(16.dp))
             Legend()
             Spacer(modifier = Modifier.height(16.dp))
-            ShiftList(shifts = sampleShifts)
+            ShiftList(shifts = getShiftsFromApiData())
         }
     }
 }
@@ -162,8 +196,8 @@ fun AttendanceInfoBar() {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("In: 11:40:44", fontSize = 14.sp)
-        Text("Hrs: 06:50", fontSize = 14.sp, color = Color.Gray)
+        Text("In: ${EmployeeDataManager.getLoginTime()}", fontSize = 14.sp)
+        Text("Hrs: ${EmployeeDataManager.getCurrentHours()}", fontSize = 14.sp, color = Color.Gray)
         Text("Jun 20, 2025", fontSize = 14.sp, color = Color.Gray)
     }
 }
@@ -211,7 +245,7 @@ fun LegendItem(color: Color, text: String) {
 }
 
 @Composable
-fun ShiftList(shifts: List<Shift>) {
+fun ShiftList(shifts: List<UiShift>) {
     LazyColumn {
         items(shifts) { shift ->
             ShiftItem(shift = shift)
@@ -221,7 +255,7 @@ fun ShiftList(shifts: List<Shift>) {
 }
 
 @Composable
-fun ShiftItem(shift: Shift) {
+fun ShiftItem(shift: UiShift) {
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
