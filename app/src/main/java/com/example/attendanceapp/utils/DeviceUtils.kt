@@ -33,24 +33,24 @@ object DeviceUtils {
     }
 
     fun getCurrentSsid(context: Context): String {
+        Log.d("DeviceUtils", "Attempting to get current SSID")
         return try {
-            val connectivityManager =
-                context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val wifiManager =
+                context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            @Suppress("DEPRECATION")
+            val connectionInfo = wifiManager.connectionInfo
+            Log.d("DeviceUtils", "ConnectionInfo: $connectionInfo")
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val network = connectivityManager.activeNetwork ?: return ""
-                val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return ""
+            @Suppress("DEPRECATION")
+            val ssid = connectionInfo?.ssid?.removePrefix("\"")?.removeSuffix("\"")
+            Log.d("DeviceUtils", "Raw SSID from connectionInfo: $ssid")
 
-                if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                    (capabilities.transportInfo as? WifiInfo)?.ssid?.removePrefix("\"")?.removeSuffix("\"") ?: ""
-                } else {
-                    ""
-                }
+            if (ssid.equals("<unknown ssid>", ignoreCase = true)) {
+                Log.w("DeviceUtils", "SSID is '<unknown ssid>', returning empty string.")
+                ""
             } else {
-                val wifiManager =
-                    context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                @Suppress("DEPRECATION")
-                wifiManager.connectionInfo?.ssid?.removePrefix("\"")?.removeSuffix("\"") ?: ""
+                Log.d("DeviceUtils", "Returning SSID: ${ssid ?: "null"}")
+                ssid ?: ""
             }
         } catch (e: Exception) {
             Log.e("DeviceUtils", "Error getting SSID", e)
