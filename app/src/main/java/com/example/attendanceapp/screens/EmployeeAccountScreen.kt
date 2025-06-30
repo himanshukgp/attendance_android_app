@@ -1,8 +1,11 @@
 package com.example.attendanceapp.screens
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -21,16 +24,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.work.*
 import com.example.attendanceapp.data.EmployeeDataManager
 import com.example.attendanceapp.utils.DeviceUtils
 import com.example.attendanceapp.utils.LocationUtils
+import com.example.attendanceapp.worker.LogStatusWorker
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
+import android.util.Log
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,38 +46,49 @@ fun EmployeeAccountScreen(navController: NavController) {
     val context = LocalContext.current
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    var isOff by remember { mutableStateOf(true) }
+    var isLoggingEnabled by remember { mutableStateOf(false) }
 
     var currentLocation by remember { mutableStateOf<Location?>(null) }
-    val currentSsid by remember { mutableStateOf(DeviceUtils.getCurrentSsid(context)) }
+    var currentSsid by remember { mutableStateOf("") }
     val currentDeviceId by remember { mutableStateOf(DeviceUtils.getDeviceIMEI(context)) }
+    var locationError by remember { mutableStateOf("") }
 
     val locationUtils = remember { LocationUtils(context) }
     val coroutineScope = rememberCoroutineScope()
 
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
+    val openLocationSettings = {
+        context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+    }
+
+    val requestLocationUpdates = {
+        if (!locationUtils.isLocationEnabled()) {
+            locationError = "Location services are disabled."
+        } else {
             coroutineScope.launch {
                 locationUtils.getCurrentLocation()
-                    .catch { e -> println("Error getting location: ${e.message}") }
+                    .catch { e -> locationError = "Error: ${e.message}" }
                     .collect { location ->
                         currentLocation = location
+                        currentSsid = DeviceUtils.getCurrentSsid(context)
+                        locationError = ""
                     }
             }
         }
     }
 
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            requestLocationUpdates()
+        } else {
+            locationError = "Location permission denied."
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            coroutineScope.launch {
-                locationUtils.getCurrentLocation()
-                    .catch { e -> println("Error getting location: ${e.message}") }
-                    .collect { location ->
-                        currentLocation = location
-                    }
-            }
+            requestLocationUpdates()
         } else {
             locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
@@ -80,9 +99,18 @@ fun EmployeeAccountScreen(navController: NavController) {
             TopAppBar(
                 title = { Text("Account", fontWeight = FontWeight.Bold) },
                 actions = {
-                    Text("OFF", color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
+                    Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Switch(checked = isOff, onCheckedChange = { isOff = it }, modifier = Modifier.height(20.dp))
+                    Switch(checked = isLoggingEnabled, onCheckedChange = {
+                        isLoggingEnabled = it
+                        if (it) {
+                            Log.d("EmployeeAccountScreen", "Toggle ON: Scheduling worker.")
+                            scheduleLogStatusWorker(context)
+                        } else {
+                            Log.d("EmployeeAccountScreen", "Toggle OFF: Cancelling worker.")
+                            WorkManager.getInstance(context).cancelUniqueWork("log_status_worker")
+                        }
+                    }, modifier = Modifier.height(20.dp))
                     IconButton(onClick = { /* TODO: Refresh action */ }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
@@ -121,6 +149,30 @@ fun EmployeeAccountScreen(navController: NavController) {
             Text("🧑 ${EmployeeDataManager.getEmployeeName()}", fontWeight = FontWeight.Bold, fontSize = 20.sp)
             Spacer(Modifier.height(24.dp))
 
+            if (locationError.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = locationError,
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        if (locationError.contains("disabled")) {
+                            Button(onClick = openLocationSettings) {
+                                Text("Enable")
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+            
             // Location Verification
             val orgLocation = EmployeeDataManager.getEmployeeData()?.let {
                 val lat = it.orgLat.toDoubleOrNull()
@@ -147,11 +199,11 @@ fun EmployeeAccountScreen(navController: NavController) {
             )
 
             // WiFi Verification
-            val isWifiOk = currentSsid == EmployeeDataManager.getOrgSSID()
+            val isWifiOk = currentSsid.isNotEmpty() && currentSsid == EmployeeDataManager.getOrgSSID()
             AccountInfoRow(
                 icon = if (isWifiOk) Icons.Default.CheckCircle else Icons.Default.Cancel,
                 iconTint = if (isWifiOk) Color.Green else Color.Red,
-                line1 = "WiFi: $currentSsid",
+                line1 = "WiFi: ${if (currentSsid.isEmpty()) "Not connected" else currentSsid}",
                 line2 = "Org SSID: ${EmployeeDataManager.getOrgSSID()}"
             )
 
@@ -203,3 +255,13 @@ fun AccountInfoRow(
 }
 
 private fun Double.format(digits: Int) = "%.${digits}f".format(this)
+
+private fun scheduleLogStatusWorker(context: Context) {
+    Log.d("EmployeeAccountScreen", "Scheduling log status worker")
+    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
+    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        "log_status_worker",
+        ExistingPeriodicWorkPolicy.REPLACE,
+        workRequest
+    )
+}
