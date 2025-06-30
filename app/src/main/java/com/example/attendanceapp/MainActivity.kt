@@ -1,5 +1,6 @@
 package com.example.attendanceapp
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,16 +15,47 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.attendanceapp.navigation.AppNavigation
 import com.example.attendanceapp.ui.theme.AttendanceAppTheme
+import com.example.attendanceapp.data.DataStoreManager
+import com.example.attendanceapp.data.EmployeeDataManager
+import com.example.attendanceapp.screens.EmployeeLoginResponse
+import com.google.gson.Gson
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.example.attendanceapp.worker.LogStatusWorker
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Restore login state
+        val json = DataStoreManager.getEmployee(applicationContext)
+        var isLoggedIn = false
+        if (json != null) {
+            try {
+                val employee = Gson().fromJson(json, EmployeeLoginResponse::class.java)
+                EmployeeDataManager.setEmployeeData(employee)
+                isLoggedIn = true
+            } catch (_: Exception) {}
+        }
+        if (isLoggedIn) {
+            scheduleLogStatusWorker(applicationContext)
+        }
         setContent {
             MaterialTheme {
-                AppNavigation()
+                AppNavigation(isLoggedIn = isLoggedIn)
             }
         }
     }
+}
+
+fun scheduleLogStatusWorker(context: Context) {
+    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
+    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        "log_status_worker",
+        ExistingPeriodicWorkPolicy.UPDATE,
+        workRequest
+    )
 }
 
 @Composable
