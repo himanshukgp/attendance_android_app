@@ -46,13 +46,18 @@ import com.example.attendanceapp.api.NetworkModule
 import com.example.attendanceapp.api.OrgLoginRequest
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import com.example.attendanceapp.data.DataStoreManager
+import com.example.attendanceapp.data.OrgDataManager
+import com.google.gson.Gson
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrgLoginScreen(navController: NavController) {
     var phone by remember { mutableStateOf("") }
+    var otp by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
+    var showOtpField by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -99,6 +104,18 @@ fun OrgLoginScreen(navController: NavController) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    if (showOtpField) {
+                        OutlinedTextField(
+                            value = otp,
+                            onValueChange = { if (it.length <= 6) otp = it },
+                            label = { Text("OTP") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+
                     if (errorMessage.isNotEmpty()) {
                         Text(
                             text = errorMessage,
@@ -111,29 +128,45 @@ fun OrgLoginScreen(navController: NavController) {
 
                     Button(
                         onClick = {
-                            Log.d("OrgLoginScreen", "Login button clicked")
-                            if (phone.length == 10) {
-                                Log.d("OrgLoginScreen", "Valid phone number entered, starting login")
-                                performOrgLogin(
-                                    phoneNumber = phone,
-                                    onLoading = { 
-                                        Log.d("OrgLoginScreen", "Setting loading state")
-                                        isLoading = true 
-                                    },
-                                    onSuccess = { response ->
-                                        Log.d("OrgLoginScreen", "Login successful, navigating to dashboard")
-                                        isLoading = false
-                                        navController.navigate("orgDashboard")
-                                    },
-                                    onError = { error ->
-                                        Log.e("OrgLoginScreen", "Login failed: $error")
-                                        isLoading = false
-                                        errorMessage = error
-                                    }
-                                )
+                            if (!showOtpField) {
+                                if (phone.length == 10) {
+                                    Log.d("OrgLoginScreen", "Valid phone number. Showing OTP field.")
+                                    showOtpField = true
+                                    errorMessage = ""
+                                    // TODO: Call API to send OTP
+                                } else {
+                                    Log.w("OrgLoginScreen", "Invalid phone number length: ${phone.length}")
+                                    errorMessage = "Please enter a valid 10-digit mobile number"
+                                }
                             } else {
-                                Log.w("OrgLoginScreen", "Invalid phone number length: ${phone.length}")
-                                errorMessage = "Please enter a valid 10-digit mobile number"
+                                if (otp.length == 6) {
+                                    Log.d("OrgLoginScreen", "Valid OTP. Starting login process.")
+                                    performOrgLogin(
+                                        phoneNumber = phone,
+                                        otp = otp,
+                                        onLoading = { 
+                                            Log.d("OrgLoginScreen", "Setting loading state")
+                                            isLoading = true 
+                                        },
+                                        onSuccess = { response ->
+                                            Log.d("OrgLoginScreen", "Login successful, navigating to dashboard")
+                                            isLoading = false
+                                            val json = Gson().toJson(response)
+                                            Log.d("OrgLoginScreen", "Saving organization data to DataStore: $json")
+                                            DataStoreManager.saveOrg(navController.context, json)
+                                            OrgDataManager.setOrgData(response)
+                                            navController.navigate("orgDashboard")
+                                        },
+                                        onError = { error ->
+                                            Log.e("OrgLoginScreen", "Login failed: $error")
+                                            isLoading = false
+                                            errorMessage = error
+                                        }
+                                    )
+                                } else {
+                                    Log.w("OrgLoginScreen", "Invalid OTP length: ${otp.length}")
+                                    errorMessage = "Please enter a valid 6-digit OTP"
+                                }
                             }
                         },
                         modifier = Modifier
@@ -148,7 +181,7 @@ fun OrgLoginScreen(navController: NavController) {
                                 color = Color.White
                             )
                         } else {
-                            Text("Login", color = Color.White)
+                            Text(if (!showOtpField) "Send OTP" else "Login", color = Color.White)
                         }
                     }
                 }
@@ -159,75 +192,42 @@ fun OrgLoginScreen(navController: NavController) {
 
 private fun performOrgLogin(
     phoneNumber: String,
+    otp: String,
     onLoading: () -> Unit,
     onSuccess: (OrgLoginResponse) -> Unit,
     onError: (String) -> Unit
 ) {
-    Log.d("OrgLoginScreen", "Starting organization login process")
-    Log.d("OrgLoginScreen", "Phone: $phoneNumber")
-    
+    Log.d("OrgLoginScreen", "Starting organization login. Phone: $phoneNumber, OTP: $otp")
     onLoading()
     
     kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
         try {
             val currentDate = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
             val request = OrgLoginRequest(
-                phone = "+91$phoneNumber", // Add country code
-                selected_date = currentDate
+                phone = "+91$phoneNumber",
+                selected_date = currentDate,
+                otp = otp
             )
             
-            Log.d("OrgLoginScreen", "API Request Details:")
-            Log.d("OrgLoginScreen", "URL: ${NetworkModule.getBaseUrl()}ios_org_login")
-            Log.d("OrgLoginScreen", "Request Body: phone=${request.phone}, selected_date=${request.selected_date}")
+            Log.d("OrgLoginScreen", "API Request: phone=${request.phone}, date=${request.selected_date}, otp=${request.otp}")
             
-            Log.d("OrgLoginScreen", "Making API call...")
             val response = NetworkModule.apiService.orgLogin(request)
-            
-            Log.d("OrgLoginScreen", "API Response received successfully")
-            Log.d("OrgLoginScreen", "Response Message: ${response.message}")
-            Log.d("OrgLoginScreen", "Organization: ${response.orgName}")
-            Log.d("OrgLoginScreen", "Status: ${response.status}")
+            Log.d("OrgLoginScreen", "API Response: ${response.message}")
             
             withContext(Dispatchers.Main) {
-                Log.d("OrgLoginScreen", "Navigating to organization dashboard")
                 onSuccess(response)
             }
         } catch (e: retrofit2.HttpException) {
-            Log.e("OrgLoginScreen", "HTTP Error: ${e.code()}", e)
             val errorBody = e.response()?.errorBody()?.string()
-            Log.e("OrgLoginScreen", "Error body: $errorBody")
-            
-            val errorMessage = when (e.code()) {
-                400 -> "Invalid request. Please check your phone number and try again."
-                401 -> "Unauthorized. Please check your credentials."
-                404 -> "Service not found. Please try again later."
-                500 -> "Server error. Please try again later."
-                else -> "Network error (${e.code()}). Please try again."
-            }
-            
+            Log.e("OrgLoginScreen", "HTTP Error: ${e.code()}, Body: $errorBody", e)
+            val errorMessage = "Network error (${e.code()}). Please try again."
             withContext(Dispatchers.Main) {
-                Log.e("OrgLoginScreen", "Showing HTTP error to user: $errorMessage")
                 onError(errorMessage)
-            }
-        } catch (e: java.net.SocketTimeoutException) {
-            Log.e("OrgLoginScreen", "Network timeout", e)
-            withContext(Dispatchers.Main) {
-                onError("Request timed out. Please check your internet connection and try again.")
-            }
-        } catch (e: java.net.UnknownHostException) {
-            Log.e("OrgLoginScreen", "No internet connection", e)
-            withContext(Dispatchers.Main) {
-                onError("No internet connection. Please check your network and try again.")
             }
         } catch (e: Exception) {
             Log.e("OrgLoginScreen", "API call failed", e)
-            Log.e("OrgLoginScreen", "Error message: ${e.message}")
-            Log.e("OrgLoginScreen", "Error type: ${e.javaClass.simpleName}")
-            
             withContext(Dispatchers.Main) {
-                val errorMessage = "Login failed: ${e.message ?: "Unknown error occurred"}"
-                Log.e("OrgLoginScreen", "Showing error to user: $errorMessage")
-                onError(errorMessage)
+                onError("Login failed: ${e.message ?: "Unknown error"}")
             }
         }
     }
