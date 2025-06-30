@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -43,7 +44,13 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.example.attendanceapp.data.EmployeeDataManager
+import com.example.attendanceapp.worker.LogStatusWorker
+import java.util.concurrent.TimeUnit
+import android.util.Log
 
 data class UiShift(
     val name: String,
@@ -111,20 +118,30 @@ fun getTimelineDataFromApi(): List<Pair<Color, Float>> {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AttendanceDetailScreen(navController: NavController) {
+    val context = LocalContext.current
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    var isOff by remember { mutableStateOf(true) }
+    var isLoggingEnabled by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Attendance", fontWeight = FontWeight.Bold) },
                 actions = {
-                    Text("OFF", color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
+                    Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
                     Spacer(modifier = Modifier.width(8.dp))
                     Switch(
-                        checked = isOff,
-                        onCheckedChange = { isOff = it },
+                        checked = isLoggingEnabled,
+                        onCheckedChange = {
+                            isLoggingEnabled = it
+                            if (it) {
+                                Log.d("AttendanceDetailScreen", "Toggle ON: Scheduling worker.")
+                                scheduleLogStatusWorker(context)
+                            } else {
+                                Log.d("AttendanceDetailScreen", "Toggle OFF: Cancelling worker.")
+                                WorkManager.getInstance(context).cancelUniqueWork("log_status_worker")
+                            }
+                        },
                         modifier = Modifier.height(20.dp)
                     )
                     IconButton(onClick = { /* TODO: Refresh action */ }) {
@@ -287,5 +304,15 @@ fun AttendanceDetailScreenPreview() {
     // We need a NavController for the preview.
     val navController = rememberNavController()
     AttendanceDetailScreen(navController = navController)
+}
+
+private fun scheduleLogStatusWorker(context: android.content.Context) {
+    Log.d("AttendanceDetailScreen", "Scheduling log status worker")
+    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
+    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        "log_status_worker",
+        ExistingPeriodicWorkPolicy.REPLACE,
+        workRequest
+    )
 }
 
