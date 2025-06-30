@@ -20,23 +20,39 @@ import com.example.attendanceapp.data.EmployeeDataManager
 import com.example.attendanceapp.screens.EmployeeLoginResponse
 import com.google.gson.Gson
 import java.util.concurrent.TimeUnit
+import android.util.Log
+import com.example.attendanceapp.data.OrgDataManager
+import com.example.attendanceapp.screens.OrgLoginResponse
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Restore login state
-        val json = DataStoreManager.getEmployee(applicationContext)
-        var isLoggedIn = false
-        if (json != null) {
+
+        val employeeJson = DataStoreManager.getEmployee(this)
+        val orgJson = DataStoreManager.getOrg(this)
+
+        val startDestination = if (employeeJson != null) {
+            "employeeAccount"
+        } else if (orgJson != null) {
             try {
-                val employee = Gson().fromJson(json, EmployeeLoginResponse::class.java)
-                EmployeeDataManager.setEmployeeData(employee)
-                isLoggedIn = true
-            } catch (_: Exception) {}
+                val orgData = Gson().fromJson(orgJson, com.example.attendanceapp.api.OrgLoginResponse::class.java)
+                OrgDataManager.setOrgData(orgData)
+                "orgDashboard"
+            } catch (e: Exception) {
+                "login"
+            }
+        } else {
+            "login"
         }
+
         setContent {
-            MaterialTheme {
-                AppNavigation(isLoggedIn = isLoggedIn)
+            AttendanceAppTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AppNavigation(startDestination = startDestination)
+                }
             }
         }
     }
