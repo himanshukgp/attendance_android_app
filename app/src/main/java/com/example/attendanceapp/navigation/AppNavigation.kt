@@ -14,10 +14,11 @@ import com.example.attendanceapp.screens.OrgAttendanceScreen
 import com.example.attendanceapp.screens.OrgSummaryScreen
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(isLoggedIn: Boolean = false) {
     val navController = rememberNavController()
+    val startDestination = if (isLoggedIn) "employeeAccount" else "login"
 
-    NavHost(navController, startDestination = "login") {
+    NavHost(navController, startDestination = startDestination) {
         composable("login") {
             LoginScreen(
                 onEmployeeLogin = { employeeData -> 
