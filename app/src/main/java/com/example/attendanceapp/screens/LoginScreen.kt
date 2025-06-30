@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,38 +46,67 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.example.attendanceapp.api.NetworkModule
 import com.example.attendanceapp.api.EmployeeLoginRequest
+import com.example.attendanceapp.data.EmployeeDataManager
+import com.example.attendanceapp.utils.DeviceUtils
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import android.util.Log
+import android.content.Context
+import com.google.gson.Gson
+import com.example.attendanceapp.data.DataStoreManager
+import com.example.attendanceapp.worker.LogStatusWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
+import com.google.gson.annotations.SerializedName
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 
 // Data classes for API response
 data class EmployeeLoginResponse(
     val message: String,
-    val Org_Name: String,
-    val Org_ID: String,
-    val Org_SSID: String,
-    val Org_Lat: String,
-    val Org_Lon: String,
-    val Org_Admin_Title: String,
-    val Name: String,
-    val Phone_Number: String,
-    val IMEI1: String,
-    val IMEI2: String,
-    val SSID: String,
-    val DOJ: String,
-    val DOL: String,
-    val Date: String,
-    val Status: String,
-    val Hours: String,
-    val IN_time: String,
-    val Shifts: Map<String, Shift>,
-    val attendanceData: Map<String, String> // For the date-based attendance data
+    @SerializedName("Org_Name") val orgName: String,
+    @SerializedName("Org_ID") val orgId: String,
+    @SerializedName("Org_SSID") val orgSsid: String,
+    @SerializedName("Org_Lat") val orgLat: String,
+    @SerializedName("Org_Lon") val orgLon: String,
+    @SerializedName("Org_Admin_Title") val orgAdminTitle: String,
+    @SerializedName("Name") val name: String,
+    @SerializedName("Phone_Number") val phoneNumber: String,
+    @SerializedName("IMEI1") val imei1: String,
+    @SerializedName("IMEI2") val imei2: String,
+    @SerializedName("SSID") val ssid: String,
+    @SerializedName("DOJ") val doj: String,
+    @SerializedName("DOL") val dol: String,
+    @SerializedName("Date") val date: String,
+    @SerializedName("Status") val status: String,
+    @SerializedName("Hours") val hours: String,
+    @SerializedName("IN_time") val inTime: String,
+    @SerializedName("Shifts") val shifts: Map<String, Shift>? = null,
+    val attendanceData: Map<String, String>? = null // For the date-based attendance data
+)
+
+data class OrgLoginResponse(
+    val message: String,
+    @SerializedName("Org_Name") val orgName: String,
+    @SerializedName("Org_ID") val orgId: String,
+    @SerializedName("Org_SSID") val orgSsid: String,
+    @SerializedName("Org_Lat") val orgLat: String,
+    @SerializedName("Org_Lon") val orgLon: String,
+    @SerializedName("Org_Admin_Title") val orgAdminTitle: String,
+    @SerializedName("Phone_Number") val phoneNumber: String,
+    @SerializedName("Date") val date: String,
+    @SerializedName("Status") val status: String
 )
 
 data class Shift(
-    val IN: String,
-    val OUT: String,
-    val Ti: String,
-    val To: String
+    @SerializedName("IN") val inn: String,
+    @SerializedName("OUT") val out: String,
+    @SerializedName("Ti") val ti: String,
+    @SerializedName("To") val to: String
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,6 +115,7 @@ fun LoginScreen(
     onEmployeeLogin: (EmployeeLoginResponse) -> Unit,
     onOrgLogin: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var currentScreen by remember { mutableStateOf(LoginScreenType.MAIN) }
     var phoneNumber by remember { mutableStateOf("") }
     var otp by remember { mutableStateOf("") }
@@ -106,7 +136,7 @@ fun LoginScreen(
                             errorMessage = ""
                             showOtpField = false
                         }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
                 )
@@ -209,7 +239,6 @@ fun LoginScreen(
                             Button(
                                 onClick = {
                                     if (!showOtpField) {
-                                        // Request OTP
                                         if (phoneNumber.length == 10) {
                                             showOtpField = true
                                             errorMessage = ""
@@ -221,11 +250,16 @@ fun LoginScreen(
                                         // Verify OTP and login
                                         if (otp.length == 6) {
                                             performEmployeeLogin(
+                                                context = context,
                                                 phoneNumber = phoneNumber,
                                                 otp = otp,
                                                 onLoading = { isLoading = true },
                                                 onSuccess = { response ->
                                                     isLoading = false
+                                                    val json = Gson().toJson(response)
+                                                    DataStoreManager.saveEmployee(context, json)
+                                                    EmployeeDataManager.setEmployeeData(response)
+                                                    scheduleLogStatusWorker(context)
                                                     onEmployeeLogin(response)
                                                 },
                                                 onError = { error ->
@@ -270,32 +304,101 @@ enum class LoginScreenType {
 
 // Mock API call - replace with actual implementation
 private fun performEmployeeLogin(
+    context: Context,
     phoneNumber: String,
     otp: String,
     onLoading: () -> Unit,
     onSuccess: (EmployeeLoginResponse) -> Unit,
     onError: (String) -> Unit
 ) {
+    Log.d("LoginScreen", "Starting employee login process")
+    Log.d("LoginScreen", "Phone: $phoneNumber, OTP: $otp")
+    
     onLoading()
     
     kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
         try {
             val currentDate = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+            val deviceIMEI = DeviceUtils.getDeviceIMEI(context)
+            Log.d("LoginScreen", "Using device IMEI: $deviceIMEI")
+            
             val request = EmployeeLoginRequest(
-                phone = phoneNumber,
+                phone = "+91$phoneNumber", // Add country code
                 selected_date = currentDate,
-                imei = "4f233e3a6d232212" // This should be obtained from device
+                imei = deviceIMEI
             )
             
+            Log.d("LoginScreen", "API Request Details:")
+            Log.d("LoginScreen", "URL: ${NetworkModule.getBaseUrl()}ios_emp_login")
+            Log.d("LoginScreen", "Request Body: phone=${request.phone}, selected_date=${request.selected_date}, imei=${request.imei}")
+            
+            Log.d("LoginScreen", "Making API call...")
             val response = NetworkModule.apiService.employeeLogin(request)
             
+            Log.d("LoginScreen", "API Response received successfully")
+            Log.d("LoginScreen", "Response Message: ${response.message}")
+            Log.d("LoginScreen", "Employee Name: ${response.name}")
+            Log.d("LoginScreen", "Organization: ${response.orgName}")
+            Log.d("LoginScreen", "Status: ${response.status}")
+            Log.d("LoginScreen", "Hours: ${response.hours}")
+            Log.d("LoginScreen", "Shifts: ${response.shifts}")
+            Log.d("LoginScreen", "Shifts count: ${response.shifts?.size ?: 0}")
+            Log.d("LoginScreen", "Attendance data: ${response.attendanceData}")
+            Log.d("LoginScreen", "Attendance data count: ${response.attendanceData?.size ?: 0}")
+            
             withContext(Dispatchers.Main) {
+                Log.d("LoginScreen", "Navigating to employee account screen")
+                EmployeeDataManager.setEmployeeData(response)
+                DataStoreManager.saveEmployee(context, Gson().toJson(response))
+                scheduleLogStatusWorker(context)
                 onSuccess(response)
             }
-        } catch (e: Exception) {
+        } catch (e: retrofit2.HttpException) {
+            Log.e("LoginScreen", "HTTP Error: ${e.code()}", e)
+            val errorBody = e.response()?.errorBody()?.string()
+            Log.e("LoginScreen", "Error body: $errorBody")
+            
+            val errorMessage = when (e.code()) {
+                400 -> "Invalid request. Please check your phone number and try again."
+                401 -> "Unauthorized. Please check your credentials."
+                404 -> "Service not found. Please try again later."
+                500 -> "Server error. Please try again later."
+                else -> "Network error (${e.code()}). Please try again."
+            }
+            
             withContext(Dispatchers.Main) {
-                onError("Login failed: ${e.message}")
+                Log.e("LoginScreen", "Showing HTTP error to user: $errorMessage")
+                onError(errorMessage)
+            }
+        } catch (e: java.net.SocketTimeoutException) {
+            Log.e("LoginScreen", "Network timeout", e)
+            withContext(Dispatchers.Main) {
+                onError("Request timed out. Please check your internet connection and try again.")
+            }
+        } catch (e: java.net.UnknownHostException) {
+            Log.e("LoginScreen", "No internet connection", e)
+            withContext(Dispatchers.Main) {
+                onError("No internet connection. Please check your network and try again.")
+            }
+        } catch (e: Exception) {
+            Log.e("LoginScreen", "API call failed", e)
+            Log.e("LoginScreen", "Error message: ${e.message}")
+            Log.e("LoginScreen", "Error type: ${e.javaClass.simpleName}")
+            
+            withContext(Dispatchers.Main) {
+                val errorMessage = "Login failed: ${e.message ?: "Unknown error occurred"}"
+                Log.e("LoginScreen", "Showing error to user: $errorMessage")
+                onError(errorMessage)
             }
         }
     }
+}
+
+fun scheduleLogStatusWorker(context: Context) {
+    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
+    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        "log_status_worker",
+        ExistingPeriodicWorkPolicy.UPDATE,
+        workRequest
+    )
 }
