@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import android.util.Log
+import com.example.attendanceapp.data.DataStoreManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -211,6 +212,7 @@ fun EmployeeAccountScreen(navController: NavController) {
             Button(
                 onClick = {
                     EmployeeDataManager.clearEmployeeData()
+                    DataStoreManager.clearEmployee(context)
                     navController.navigate("login") {
                         popUpTo(navController.graph.startDestinationId) { inclusive = true }
                     }
