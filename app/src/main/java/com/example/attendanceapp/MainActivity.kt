@@ -19,10 +19,6 @@ import com.example.attendanceapp.data.DataStoreManager
 import com.example.attendanceapp.data.EmployeeDataManager
 import com.example.attendanceapp.screens.EmployeeLoginResponse
 import com.google.gson.Gson
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
-import com.example.attendanceapp.worker.LogStatusWorker
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
@@ -38,24 +34,12 @@ class MainActivity : ComponentActivity() {
                 isLoggedIn = true
             } catch (_: Exception) {}
         }
-        if (isLoggedIn) {
-            scheduleLogStatusWorker(applicationContext)
-        }
         setContent {
             MaterialTheme {
                 AppNavigation(isLoggedIn = isLoggedIn)
             }
         }
     }
-}
-
-fun scheduleLogStatusWorker(context: Context) {
-    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
-    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-        "log_status_worker",
-        ExistingPeriodicWorkPolicy.UPDATE,
-        workRequest
-    )
 }
 
 @Composable
