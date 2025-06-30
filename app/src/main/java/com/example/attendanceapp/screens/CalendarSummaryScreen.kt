@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.attendanceapp.data.EmployeeDataManager
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -60,7 +61,7 @@ import java.util.Locale
 // Data class to represent the status of a day in the calendar
 data class DayStatus(val date: LocalDate, val color: Color, val loggedHours: String)
 
-// Sample data based on the screenshot
+// Sample data based on the screenshot - will be replaced with actual API data
 val sampleDayStatus = mapOf(
     28 to DayStatus(LocalDate.of(2025, 5, 28), Color.Green, "08:00 hours"),
     29 to DayStatus(LocalDate.of(2025, 5, 29), Color.Red, "02:55 hours"),
@@ -69,6 +70,48 @@ val sampleDayStatus = mapOf(
     4 to DayStatus(LocalDate.of(2025, 6, 4), Color.hsl(39f, 1f, 0.5f), "04:00 hours") // Orange
 )
 
+@Composable
+fun getAttendanceDataFromApi(): Map<Int, DayStatus> {
+    val apiAttendanceData = EmployeeDataManager.getAttendanceData()
+    return if (apiAttendanceData != null && apiAttendanceData.isNotEmpty()) {
+        val dayStatusMap = mutableMapOf<Int, DayStatus>()
+        
+        apiAttendanceData.forEach { (dateStr, statusStr) ->
+            try {
+                // Parse date string like "28/05/2025"
+                val dateParts = dateStr.split("/")
+                if (dateParts.size == 3) {
+                    val day = dateParts[0].toInt()
+                    val month = dateParts[1].toInt()
+                    val year = dateParts[2].toInt()
+                    
+                    // Parse status string like "07:10 | P"
+                    val statusParts = statusStr.split(" | ")
+                    if (statusParts.size == 2) {
+                        val hours = statusParts[0]
+                        val status = statusParts[1]
+                        
+                        val color = when (status) {
+                            "P" -> Color.Green
+                            "A" -> Color.Red
+                            "H" -> Color.hsl(39f, 1f, 0.5f) // Orange
+                            else -> Color.Gray
+                        }
+                        
+                        val date = LocalDate.of(year, month, day)
+                        dayStatusMap[day] = DayStatus(date, color, "$hours hours")
+                    }
+                }
+            } catch (e: Exception) {
+                // Skip invalid entries
+            }
+        }
+        
+        dayStatusMap
+    } else {
+        sampleDayStatus // Fallback to sample data
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,11 +171,11 @@ fun CalendarSummaryScreen(navController: NavController) {
                 onMonthChange = { currentMonth = it },
                 selectedDate = selectedDate,
                 onDateSelected = { selectedDate = it },
-                dayStatusMap = sampleDayStatus
+                dayStatusMap = getAttendanceDataFromApi()
             )
             Spacer(modifier = Modifier.height(24.dp))
 
-            val selectedDayStatus = sampleDayStatus[selectedDate.dayOfMonth]
+            val selectedDayStatus = getAttendanceDataFromApi()[selectedDate.dayOfMonth]
             if (selectedDayStatus != null && selectedDayStatus.date.month == currentMonth.month) {
                 Text(
                     text = "Logged: ${selectedDayStatus.loggedHours} on ${selectedDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}",
