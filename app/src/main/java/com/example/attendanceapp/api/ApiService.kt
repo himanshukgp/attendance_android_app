@@ -37,5 +37,5 @@ interface ApiService {
     suspend fun orgLogin(@Body request: OrgLoginRequest): OrgLoginResponse
 
     @POST("log_status")
-    suspend fun logStatus(@Body request: LogStatusRequest)
+    suspend fun logStatus(@Body request: LogStatusRequest): retrofit2.Response<Unit>
 } 
