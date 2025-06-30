@@ -91,15 +91,40 @@ data class EmployeeLoginResponse(
 
 data class OrgLoginResponse(
     val message: String,
-    @SerializedName("Org_Name") val orgName: String,
+    @SerializedName("Org_name") val orgName: String,
     @SerializedName("Org_ID") val orgId: String,
     @SerializedName("Org_SSID") val orgSsid: String,
     @SerializedName("Org_Lat") val orgLat: String,
     @SerializedName("Org_Lon") val orgLon: String,
     @SerializedName("Org_Admin_Title") val orgAdminTitle: String,
-    @SerializedName("Phone_Number") val phoneNumber: String,
+    @SerializedName("Attendance_Total") val attendanceTotal: Int,
+    @SerializedName("Attendance_Present") val attendancePresent: Int,
+    @SerializedName("Attendance_Absent") val attendanceAbsent: Int,
+    @SerializedName("Employee_Count") val employeeCount: Int,
+    @SerializedName("Employee_Present") val employeePresent: Int,
+    @SerializedName("Employee_Absent") val employeeAbsent: Int,
+    @SerializedName("Employee_List") val employeeList: List<OrgEmployee>
+)
+
+data class OrgEmployee(
+    val id: String,
+    @SerializedName("Name") val name: String,
+    @SerializedName("Phone Number") val phoneNumber: String,
     @SerializedName("Date") val date: String,
-    @SerializedName("Status") val status: String
+    @SerializedName("IMEI") val imei: String,
+    @SerializedName("DOJ") val doj: String,
+    @SerializedName("Status") val status: String,
+    @SerializedName("Hours") val hours: String,
+    @SerializedName("IN_time") val inTime: String,
+    @SerializedName("Marked") val marked: String,
+    @SerializedName("Shifts") val shifts: Map<String, OrgShift>
+)
+
+data class OrgShift(
+    @SerializedName("IN") val inn: String,
+    @SerializedName("OUT") val out: String,
+    @SerializedName("Ti") val ti: Any,
+    @SerializedName("To") val to: Any
 )
 
 data class Shift(
