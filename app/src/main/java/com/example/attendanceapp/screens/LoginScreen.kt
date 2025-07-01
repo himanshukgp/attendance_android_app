@@ -64,75 +64,13 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import com.example.attendanceapp.api.EmployeeLoginResponse
+import com.example.attendanceapp.api.OrgLoginResponse
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-// Data classes for API response
-data class EmployeeLoginResponse(
-    val message: String,
-    @SerializedName("Org_Name") val orgName: String,
-    @SerializedName("Org_ID") val orgId: String,
-    @SerializedName("Org_SSID") val orgSsid: String,
-    @SerializedName("Org_Lat") val orgLat: String,
-    @SerializedName("Org_Lon") val orgLon: String,
-    @SerializedName("Org_Admin_Title") val orgAdminTitle: String,
-    @SerializedName("Name") val name: String,
-    @SerializedName("Phone_Number") val phoneNumber: String,
-    @SerializedName("IMEI1") val imei1: String,
-    @SerializedName("IMEI2") val imei2: String,
-    @SerializedName("SSID") val ssid: String,
-    @SerializedName("DOJ") val doj: String,
-    @SerializedName("DOL") val dol: String,
-    @SerializedName("Date") val date: String,
-    @SerializedName("Status") val status: String,
-    @SerializedName("Hours") val hours: String,
-    @SerializedName("IN_time") val inTime: String,
-    @SerializedName("Shifts") val shifts: Map<String, Shift>? = null,
-    val attendanceData: Map<String, String>? = null // For the date-based attendance data
-)
-
-data class OrgLoginResponse(
-    val message: String,
-    @SerializedName("Org_name") val orgName: String,
-    @SerializedName("Org_ID") val orgId: String,
-    @SerializedName("Org_SSID") val orgSsid: String,
-    @SerializedName("Org_Lat") val orgLat: String,
-    @SerializedName("Org_Lon") val orgLon: String,
-    @SerializedName("Org_Admin_Title") val orgAdminTitle: String,
-    @SerializedName("Attendance_Total") val attendanceTotal: Int,
-    @SerializedName("Attendance_Present") val attendancePresent: Int,
-    @SerializedName("Attendance_Absent") val attendanceAbsent: Int,
-    @SerializedName("Employee_Count") val employeeCount: Int,
-    @SerializedName("Employee_Present") val employeePresent: Int,
-    @SerializedName("Employee_Absent") val employeeAbsent: Int,
-    @SerializedName("Employee_List") val employeeList: List<OrgEmployee>
-)
-
-data class OrgEmployee(
-    val id: String,
-    @SerializedName("Name") val name: String,
-    @SerializedName("Phone Number") val phoneNumber: String,
-    @SerializedName("Date") val date: String,
-    @SerializedName("IMEI") val imei: String,
-    @SerializedName("DOJ") val doj: String,
-    @SerializedName("Status") val status: String,
-    @SerializedName("Hours") val hours: String,
-    @SerializedName("IN_time") val inTime: String,
-    @SerializedName("Marked") val marked: String,
-    @SerializedName("Shifts") val shifts: Map<String, OrgShift>
-)
-
-data class OrgShift(
-    @SerializedName("IN") val inn: String,
-    @SerializedName("OUT") val out: String,
-    @SerializedName("Ti") val ti: Any,
-    @SerializedName("To") val to: Any
-)
-
-data class Shift(
-    @SerializedName("IN") val inn: String,
-    @SerializedName("OUT") val out: String,
-    @SerializedName("Ti") val ti: String,
-    @SerializedName("To") val to: String
-)
+// Data classes for API response are now in api/DataModels.kt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -284,6 +222,8 @@ fun LoginScreen(
                                                     val json = Gson().toJson(response)
                                                     DataStoreManager.saveEmployee(context, json)
                                                     EmployeeDataManager.setEmployeeData(response)
+                                                    val phoneWithCountryCode = if (phoneNumber.startsWith("+91")) phoneNumber else "+91$phoneNumber"
+                                                    DataStoreManager.saveEmployeePhone(context, phoneWithCountryCode)
                                                     onEmployeeLogin(response)
                                                 },
                                                 onError = { error ->
@@ -346,11 +286,15 @@ private fun performEmployeeLogin(
             val deviceIMEI = DeviceUtils.getDeviceIMEI(context)
             Log.d("LoginScreen", "Using device IMEI: $deviceIMEI")
             
+            val phoneWithCountryCode = if (phoneNumber.startsWith("+91")) phoneNumber else "+91$phoneNumber"
+            val dateFormatted = currentDate
             val request = EmployeeLoginRequest(
-                phone = "+91$phoneNumber", // Add country code
-                selected_date = currentDate,
+                phone = phoneWithCountryCode,
+                selected_date = dateFormatted,
                 imei = deviceIMEI
             )
+            
+            Log.d("EmployeeLogin", "Request: ${Gson().toJson(request)}")
             
             Log.d("LoginScreen", "API Request Details:")
             Log.d("LoginScreen", "URL: ${NetworkModule.getBaseUrl()}ios_emp_login")
@@ -374,6 +318,8 @@ private fun performEmployeeLogin(
                 Log.d("LoginScreen", "Navigating to employee account screen")
                 EmployeeDataManager.setEmployeeData(response)
                 DataStoreManager.saveEmployee(context, Gson().toJson(response))
+                val phoneWithCountryCode = if (phoneNumber.startsWith("+91")) phoneNumber else "+91$phoneNumber"
+                DataStoreManager.saveEmployeePhone(context, phoneWithCountryCode)
                 onSuccess(response)
             }
         } catch (e: retrofit2.HttpException) {
