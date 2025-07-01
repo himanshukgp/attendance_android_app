@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
@@ -25,6 +27,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,40 +74,23 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+// Data classes for employee data
 data class EmployeeAttendance(
+    val id: String,
     val name: String,
+    val phoneNumber: String,
+    val date: String,
     val loginTime: String,
     val totalTime: String,
-    val status: List<Char>,
-    val timeline: List<Pair<Color, Float>>
+    val marked: String,
+    val shifts: Map<String, ShiftData>
 )
 
-val employeeData = listOf(
-    EmployeeAttendance(
-        name = "AKSHAYKRISHNAN KA",
-        loginTime = "11:22:14",
-        totalTime = "07:08",
-        status = listOf('P', 'H', 'A'),
-        timeline = listOf(
-            Color.Green to 0.2f, Color.Red to 0.1f, Color.Green to 0.4f, Color.Red to 0.1f, Color.Green to 0.2f
-        )
-    ),
-    EmployeeAttendance(
-        name = "JayaCharan",
-        loginTime = "11:20:12",
-        totalTime = "04:04",
-        status = listOf('P', 'H', 'A'),
-        timeline = listOf(Color.Green to 0.2f, Color.Red to 0.1f, Color.Green to 0.7f)
-    ),
-    EmployeeAttendance(
-        name = "SRUSHTI GANAMUKHI",
-        loginTime = "11:20:12",
-        totalTime = "07:10",
-        status = listOf('H'),
-        timeline = listOf(
-            Color.Green to 0.3f, Color.Red to 0.1f, Color.Green to 0.1f, Color.Red to 0.2f, Color.Green to 0.3f
-        )
-    )
+data class ShiftData(
+    val inTime: String,
+    val outTime: String,
+    val ti: Double,
+    val to: Double
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,6 +102,56 @@ fun OrgAttendanceScreen(navController: NavController) {
     val context = LocalContext.current
     var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
     val coroutineScope = rememberCoroutineScope()
+
+    // Filter states
+    var selectedName by remember { mutableStateOf("All") }
+    var selectedMonth by remember { mutableStateOf("June 2025") }
+    var selectedDate by remember { mutableStateOf("All") }
+
+    // Parse employee data from orgData
+    val employeeData = remember(orgData, selectedName, selectedMonth, selectedDate) {
+        orgData?.employeeList?.let { employees ->
+            employees.map { employee ->
+                EmployeeAttendance(
+                    id = employee.id,
+                    name = employee.name,
+                    phoneNumber = employee.phoneNumber,
+                    date = employee.date,
+                    loginTime = employee.inTime,
+                    totalTime = employee.hours,
+                    marked = employee.marked,
+                    shifts = employee.shifts.mapValues { (_, shift) ->
+                        ShiftData(
+                            inTime = shift.inn,
+                            outTime = shift.out,
+                            ti = if (shift.ti is String && shift.ti == "-") 0.0 else (shift.ti as? Double ?: 0.0),
+                            to = if (shift.to is String && shift.to == "-") 0.0 else (shift.to as? Double ?: 0.0)
+                        )
+                    }
+                )
+            }.filter { employee ->
+                // Apply filters
+                val nameMatch = selectedName == "All" || employee.name == selectedName
+                val monthMatch = selectedMonth == "All" || isDateInMonth(employee.date, selectedMonth)
+                val dateMatch = selectedDate == "All" || employee.date == selectedDate
+
+                nameMatch && monthMatch && dateMatch
+            }
+        } ?: emptyList()
+    }
+
+    // Get unique names, months, and dates for filters
+    val uniqueNames = remember(orgData) {
+        listOf("All") + (orgData?.employeeList?.map { it.name }?.distinct() ?: emptyList())
+    }
+
+    val uniqueMonths = remember(orgData) {
+        listOf("All", "June 2025") + (orgData?.employeeList?.map { getMonthFromDate(it.date) }?.distinct()?.filterNot { it == "June 2025" } ?: emptyList())
+    }
+
+    val uniqueDates = remember(orgData) {
+        listOf("All") + (orgData?.employeeList?.map { it.date }?.distinct() ?: emptyList())
+    }
 
     // Initialize toggle state from DataStore
     LaunchedEffect(Unit) {
@@ -148,7 +185,7 @@ fun OrgAttendanceScreen(navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(orgData?.orgName ?: "Organization Attendance", fontWeight = FontWeight.Bold) },
+                title = { Text("Attendance", fontWeight = FontWeight.Bold, fontSize = 22.sp) },
                 actions = {
                     Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -182,11 +219,48 @@ fun OrgAttendanceScreen(navController: NavController) {
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            FilterControls()
-            LazyColumn(modifier = Modifier.padding(horizontal = 16.dp)) {
+            // Name filter at the top, centered
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterLabelValue(
+                    label = "Name",
+                    value = selectedName,
+                    options = uniqueNames,
+                    onValueSelected = { selectedName = it }
+                )
+            }
+            // Month and Date filters below name, centered
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterLabelValue(
+                    label = "Month",
+                    value = selectedMonth,
+                    options = uniqueMonths,
+                    onValueSelected = { selectedMonth = it }
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                FilterLabelValue(
+                    label = "Date",
+                    value = selectedDate,
+                    options = uniqueDates,
+                    onValueSelected = { selectedDate = it }
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyColumn(modifier = Modifier.padding(horizontal = 0.dp)) {
                 items(employeeData) { employee ->
-                    EmployeeAttendanceCard(employee = employee)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    EmployeeAttendanceCardStyled(employee = employee)
+                    Spacer(modifier = Modifier.height(18.dp))
                 }
             }
         }
@@ -194,125 +268,169 @@ fun OrgAttendanceScreen(navController: NavController) {
 }
 
 @Composable
-fun FilterControls() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceAround,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        FilterItem(label = "Name", value = "All")
-        FilterItem(label = "Month", value = "June 2025")
-        FilterItem(label = "Date", value = "All")
-    }
-}
-
-@Composable
-fun FilterItem(label: String, value: String) {
+fun FilterLabelValue(label: String, value: String, options: List<String>, onValueSelected: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, fontSize = 14.sp, color = Color.Gray)
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(value, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown")
+        Text(label, fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Normal)
+        Spacer(modifier = Modifier.height(1.dp))
+        Box {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { expanded = true }
+            ) {
+                Text(
+                    text = value,
+                    color = Color(0xFF1976D2),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .padding(horizontal = 2.dp)
+                        .then(if (expanded) Modifier else Modifier)
+                        .background(Color.Transparent),
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                )
+                Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown", tint = Color(0xFF1976D2))
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            onValueSelected(option)
+                            expanded = false
+                        }
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-fun EmployeeAttendanceCard(employee: EmployeeAttendance) {
+fun EmployeeAttendanceCardStyled(employee: EmployeeAttendance) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF5F5F5), RoundedCornerShape(18.dp)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(18.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(employee.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                StatusIcons(status = employee.status)
+                Text(
+                    text = employee.name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color.Black
+                )
+                StatusIndicator(status = employee.marked)
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Login Time: ${employee.loginTime}", fontSize = 14.sp, color = Color.Gray)
-            Text("Total Time: ${employee.totalTime}", fontSize = 14.sp, color = Color.Gray)
-            Spacer(modifier = Modifier.height(8.dp))
-            TimelineBar(data = employee.timeline, height = 8.dp)
+            Text(
+                text = "Login Time: ${employee.loginTime}",
+                fontSize = 13.sp,
+                color = Color(0xFF757575),
+                fontWeight = FontWeight.Normal
+            )
+            Text(
+                text = "Total Time: ${employee.totalTime}",
+                fontSize = 13.sp,
+                color = Color(0xFF757575),
+                fontWeight = FontWeight.Normal
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            TimelineBarStyled(shifts = employee.shifts)
         }
     }
 }
 
 @Composable
-fun StatusIcons(status: List<Char>) {
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        // This is a simplified representation based on the image
-        val pColor = if (status.contains('A')) Color.Gray else MaterialTheme.colorScheme.surfaceVariant
-        val hColor = if (status.contains('H')) Color(0xFFFFA500) else MaterialTheme.colorScheme.surfaceVariant
-        val aColor = if (status.contains('A')) Color.Red else MaterialTheme.colorScheme.surfaceVariant
+fun StatusIndicator(status: String) {
+    val (backgroundColor, textColor) = when (status) {
+        "P" -> Color(0xFF4CAF50) to Color.White // Green for Present
+        "A" -> Color(0xFFF44336) to Color.White // Red for Absent
+        "H" -> Color(0xFFFF9800) to Color.White // Orange for Half day
+        else -> Color.Gray to Color.White
+    }
 
-        StatusIcon(char = 'P', color = pColor)
-        StatusIcon(char = 'H', color = hColor)
-        StatusIcon(char = 'A', color = aColor)
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(backgroundColor),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = status,
+            color = textColor,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
 @Composable
-fun StatusIcon(char: Char, color: Color) {
-    Box(
+fun TimelineBarStyled(shifts: Map<String, ShiftData>) {
+    val sortedShifts = shifts.toList().sortedBy { it.first }
+    if (sortedShifts.isEmpty()) return
+    Row(
         modifier = Modifier
-            .size(24.dp)
-            .clip(CircleShape)
-            .background(color),
-        contentAlignment = Alignment.Center
+            .fillMaxWidth()
+            .height(14.dp)
+            .clip(RoundedCornerShape(7.dp)),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(char.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        sortedShifts.forEach { (_, shift) ->
+            val tiRatio = shift.ti.toFloat()
+            val toRatio = shift.to.toFloat()
+            if (tiRatio > 0) {
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFF4CAF50))
+                        .weight(tiRatio.coerceAtLeast(0.1f))
+                        .fillMaxHeight()
+                )
+            }
+            if (toRatio > 0) {
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFFF44336))
+                        .weight(toRatio.coerceAtLeast(0.1f))
+                        .fillMaxHeight()
+                )
+            }
+        }
     }
 }
 
-//@Composable
-//fun TimelineBar(data: List<Pair<Color, Float>>, height: Dp) {
-//    Row(
-//        modifier = Modifier
-//            .fillMaxWidth()
-//            .height(height)
-//            .clip(CircleShape)
-//    ) {
-//        data.forEach { (color, weight) ->
-//            Box(
-//                modifier = Modifier
-//                    .background(color)
-//                    .weight(weight)
-//                    .fillMaxHeight()
-//            )
-//        }
-//    }
-//}
+// Helper functions
+private fun isDateInMonth(dateString: String, monthString: String): Boolean {
+    return try {
+        val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        val date = sdf.parse(dateString) ?: return false
+        val monthYear = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(date)
+        monthYear == monthString
+    } catch (e: Exception) {
+        false
+    }
+}
 
-//@Composable
-//fun OrgBottomBar(navController: NavController, currentRoute: String?) {
-//    NavigationBar {
-//        NavigationBarItem(
-//            selected = currentRoute == "orgDashboard",
-//            icon = { Icon(Icons.Default.Person, contentDescription = "Dashboard") },
-//            label = { Text("Dashboard") },
-//            onClick = { navController.navigate("orgDashboard") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
-//        )
-//        NavigationBarItem(
-//            selected = currentRoute == "orgAttendance",
-//            icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Attendance") },
-//            label = { Text("Attendance") },
-//            onClick = { navController.navigate("orgAttendance") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
-//        )
-//        NavigationBarItem(
-//            selected = currentRoute == "orgSummary",
-//            icon = { Icon(Icons.Default.BarChart, contentDescription = "Summary") },
-//            label = { Text("Summary") },
-//            onClick = { navController.navigate("orgSummary") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
-//        )
-//    }
-//}
+private fun getMonthFromDate(dateString: String): String {
+    return try {
+        val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        val date = sdf.parse(dateString) ?: Date(0)
+        SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(date)
+    } catch (e: Exception) {
+        "Unknown"
+    }
+}
 
 @Preview(showBackground = true)
 @Composable
@@ -332,4 +450,3 @@ private fun scheduleOrgLogStatusWorker(context: Context) {
         logStatusWorkRequest
     )
 }
-
