@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -17,12 +18,11 @@ import com.example.attendanceapp.navigation.AppNavigation
 import com.example.attendanceapp.ui.theme.AttendanceAppTheme
 import com.example.attendanceapp.data.DataStoreManager
 import com.example.attendanceapp.data.EmployeeDataManager
-import com.example.attendanceapp.screens.EmployeeLoginResponse
+import com.example.attendanceapp.api.OrgLoginResponse
 import com.google.gson.Gson
 import java.util.concurrent.TimeUnit
 import android.util.Log
 import com.example.attendanceapp.data.OrgDataManager
-import com.example.attendanceapp.screens.OrgLoginResponse
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
             "employeeAccount"
         } else if (orgJson != null) {
             try {
-                val orgData = Gson().fromJson(orgJson, com.example.attendanceapp.api.OrgLoginResponse::class.java)
+                val orgData = Gson().fromJson(orgJson, OrgLoginResponse::class.java)
                 OrgDataManager.setOrgData(orgData)
                 "orgDashboard"
             } catch (e: Exception) {
