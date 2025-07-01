@@ -56,23 +56,22 @@ fun TimelineBar(data: List<Pair<Color, Float>>, height: Dp) {
 
 @Composable
 fun OrgBottomBar(navController: NavController, currentRoute: String?) {
-    NavigationBar {
+    NavigationBar(
+        modifier = Modifier.height(48.dp)
+    ) {
         NavigationBarItem(
             selected = currentRoute == "orgDashboard",
             icon = { Icon(Icons.Default.Person, contentDescription = "Dashboard") },
-            label = { Text("Dashboard") },
             onClick = { navController.navigate("orgDashboard") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
         )
         NavigationBarItem(
             selected = currentRoute == "orgAttendance",
             icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Attendance") },
-            label = { Text("Attendance") },
             onClick = { navController.navigate("orgAttendance") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
         )
         NavigationBarItem(
             selected = currentRoute == "orgSummary",
             icon = { Icon(Icons.Default.BarChart, contentDescription = "Summary") },
-            label = { Text("Summary") },
             onClick = { navController.navigate("orgSummary") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
         )
     }
