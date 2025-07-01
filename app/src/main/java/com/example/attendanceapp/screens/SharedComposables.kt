@@ -25,6 +25,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.getValue
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Switch
+import androidx.compose.ui.unit.dp
 
 @Composable
 fun TimelineBar(data: List<Pair<Color, Float>>, height: Dp) {
@@ -35,12 +42,14 @@ fun TimelineBar(data: List<Pair<Color, Float>>, height: Dp) {
             .clip(CircleShape)
     ) {
         data.forEach { (color, weight) ->
-            Box(
-                modifier = Modifier
-                    .background(color)
-                    .weight(weight)
-                    .fillMaxHeight()
-            )
+            if (weight > 0f) {
+                Box(
+                    modifier = Modifier
+                        .background(color)
+                        .weight(weight)
+                        .fillMaxHeight()
+                )
+            }
         }
     }
 }
@@ -67,4 +76,29 @@ fun OrgBottomBar(navController: NavController, currentRoute: String?) {
             onClick = { navController.navigate("orgSummary") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EmployeeTopBar(
+    title: String,
+    isLoggingEnabled: Boolean,
+    onToggleChanged: (Boolean) -> Unit,
+    onRefresh: () -> Unit
+) {
+    TopAppBar(
+        title = { Text(title, fontWeight = FontWeight.Bold) },
+        actions = {
+            Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray, modifier = Modifier)
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(
+                checked = isLoggingEnabled,
+                onCheckedChange = onToggleChanged,
+                modifier = Modifier.height(20.dp)
+            )
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+            }
+        }
+    )
 } 
