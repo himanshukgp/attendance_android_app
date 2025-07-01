@@ -134,7 +134,6 @@ fun OrgDashboardScreen(navController: NavController) {
                     .padding(16.dp)
                     .fillMaxSize()
             ) {
-                InfoRow("Login Message", orgData.message)
                 InfoRow("Admin Title", orgData.orgAdminTitle)
                 InfoRow("SSID", orgData.orgSsid)
                 InfoRow("Location", "${orgData.orgLat}, ${orgData.orgLon}")
