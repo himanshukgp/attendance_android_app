@@ -39,7 +39,18 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import android.util.Log
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
 import com.example.attendanceapp.data.DataStoreManager
+import com.google.gson.Gson
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import com.example.attendanceapp.api.EmployeeLoginRequest
+import com.example.attendanceapp.api.NetworkModule
+import com.example.attendanceapp.screens.EmployeeTopBar
+import java.net.URLEncoder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,7 +58,7 @@ fun EmployeeAccountScreen(navController: NavController) {
     val context = LocalContext.current
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    var isLoggingEnabled by remember { mutableStateOf(false) }
+    var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
 
     var currentLocation by remember { mutableStateOf<Location?>(null) }
     var currentSsid by remember { mutableStateOf("") }
@@ -56,6 +67,77 @@ fun EmployeeAccountScreen(navController: NavController) {
 
     val locationUtils = remember { LocationUtils(context) }
     val coroutineScope = rememberCoroutineScope()
+
+    // Initialize toggle state from DataStore
+    LaunchedEffect(Unit) {
+        isLoggingEnabled = DataStoreManager.getWorkerToggleState(context)
+        if (EmployeeDataManager.getEmployeeData() == null) {
+            DataStoreManager.getEmployee(context)?.let { json ->
+                try {
+                    val employee = Gson().fromJson(json, com.example.attendanceapp.api.EmployeeLoginResponse::class.java)
+                    EmployeeDataManager.setEmployeeData(employee)
+                    Log.d("EmployeeAccountScreen", "Loaded employee data from DataStore")
+                } catch (e: Exception) {
+                    Log.e("EmployeeAccountScreen", "Failed to parse employee data from DataStore", e)
+                }
+            }
+        }
+    }
+
+    val refreshData = {
+        coroutineScope.launch {
+            try {
+                Log.d("EmployeeAccountScreen", "Starting employee data refresh...")
+                var phone = DataStoreManager.getEmployeePhone(context)
+                Log.d("EmployeeAccountScreen", "Primary phone from DataStore: $phone")
+                if (phone == null || phone == "Unknown") {
+                    phone = EmployeeDataManager.getPhoneNumber()
+                    Log.d("EmployeeAccountScreen", "Fallback phone from EmployeeDataManager: $phone")
+                    if (phone == "Unknown" || phone == null) {
+                        DataStoreManager.getEmployee(context)?.let { json ->
+                            try {
+                                val employee = Gson().fromJson(json, com.example.attendanceapp.api.EmployeeLoginResponse::class.java)
+                                phone = employee.phoneNumber
+                                Log.d("EmployeeAccountScreen", "Fetched phone from employee JSON: $phone")
+                            } catch (e: Exception) {
+                                Log.e("EmployeeAccountScreen", "Failed to fetch phone from employee JSON", e)
+                            }
+                        }
+                    }
+                }
+                var imei = EmployeeDataManager.getDeviceId()
+                if (imei == "Unknown" || imei == null) {
+                    DataStoreManager.getEmployee(context)?.let { json ->
+                        try {
+                            val employee = Gson().fromJson(json, com.example.attendanceapp.api.EmployeeLoginResponse::class.java)
+                            imei = employee.imei1
+                            Log.d("EmployeeAccountScreen", "Fetched imei from employee JSON: $imei")
+                        } catch (e: Exception) {
+                            Log.e("EmployeeAccountScreen", "Failed to fetch imei from employee JSON", e)
+                        }
+                    }
+                }
+                if (phone != null && phone != "Unknown" && imei != null && imei != "Unknown") {
+                    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                    val currentDate = sdf.format(Date())
+                    val request = EmployeeLoginRequest(phone = phone, selected_date = currentDate, imei = imei)
+                    Log.d("EmployeeAccountScreen", "Making API call with phone: $phone, date: $currentDate, imei: $imei")
+                    val response = NetworkModule.apiService.employeeLogin(request)
+                    EmployeeDataManager.setEmployeeData(response)
+                    val employeeJson = Gson().toJson(response)
+                    DataStoreManager.saveEmployee(context, employeeJson)
+                    DataStoreManager.saveEmployeePhone(context, phone)
+                    Log.d("EmployeeAccountScreen", "Employee data refresh completed successfully")
+                } else {
+                    Log.w("EmployeeAccountScreen", "Cannot refresh: phone=$phone, imei=$imei (null or Unknown)")
+                    val emp = EmployeeDataManager.getEmployeeData()
+                    Log.w("EmployeeAccountScreen", "EmployeeDataManager.getEmployeeData(): $emp")
+                }
+            } catch (e: Exception) {
+                Log.e("EmployeeAccountScreen", "Failed to refresh employee data", e)
+            }
+        }
+    }
 
     val openLocationSettings = {
         context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
@@ -97,25 +179,21 @@ fun EmployeeAccountScreen(navController: NavController) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Account", fontWeight = FontWeight.Bold) },
-                actions = {
-                    Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(checked = isLoggingEnabled, onCheckedChange = {
-                        isLoggingEnabled = it
-                        if (it) {
-                            Log.d("EmployeeAccountScreen", "Toggle ON: Scheduling worker.")
-                            scheduleLogStatusWorker(context)
-                        } else {
-                            Log.d("EmployeeAccountScreen", "Toggle OFF: Cancelling worker.")
-                            WorkManager.getInstance(context).cancelUniqueWork("log_status_worker")
-                        }
-                    }, modifier = Modifier.height(20.dp))
-                    IconButton(onClick = { /* TODO: Refresh action */ }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+            EmployeeTopBar(
+                title = "Account",
+                isLoggingEnabled = isLoggingEnabled,
+                onToggleChanged = {
+                    isLoggingEnabled = it
+                    DataStoreManager.saveWorkerToggleState(context, it)
+                    if (it) {
+                        Log.d("EmployeeAccountScreen", "Toggle ON: Scheduling worker.")
+                        scheduleLogStatusWorker(context)
+                    } else {
+                        Log.d("EmployeeAccountScreen", "Toggle OFF: Cancelling worker.")
+                        WorkManager.getInstance(context).cancelUniqueWork("log_status_worker")
                     }
-                }
+                },
+                onRefresh = { refreshData() }
             )
         },
         bottomBar = {
@@ -130,7 +208,14 @@ fun EmployeeAccountScreen(navController: NavController) {
                     selected = currentRoute == "attendanceDetail",
                     icon = { Icon(Icons.Outlined.CalendarToday, contentDescription = "Attendance") },
                     label = { Text("Attendance") },
-                    onClick = { navController.navigate("attendanceDetail") { popUpTo(navController.graph.startDestinationId); launchSingleTop = true } }
+                    onClick = {
+                        val today = SimpleDateFormat("dd/MM/yyyy").format(Date())
+                        val encodedDate = URLEncoder.encode(today, "UTF-8")
+                        navController.navigate("attendanceDetail/$encodedDate") {
+                            popUpTo(navController.graph.startDestinationId)
+                            launchSingleTop = true
+                        }
+                    }
                 )
                 NavigationBarItem(
                     selected = currentRoute == "calendarSummary",
@@ -259,11 +344,13 @@ fun AccountInfoRow(
 private fun Double.format(digits: Int) = "%.${digits}f".format(this)
 
 private fun scheduleLogStatusWorker(context: Context) {
-    Log.d("EmployeeAccountScreen", "Scheduling log status worker")
-    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
+    val logStatusWorkRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(
+        java.time.Duration.ofHours(1)
+    ).build()
+
     WorkManager.getInstance(context).enqueueUniquePeriodicWork(
         "log_status_worker",
-        ExistingPeriodicWorkPolicy.REPLACE,
-        workRequest
+        ExistingPeriodicWorkPolicy.KEEP,
+        logStatusWorkRequest
     )
 }
