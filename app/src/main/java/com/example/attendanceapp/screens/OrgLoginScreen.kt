@@ -44,6 +44,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.example.attendanceapp.api.NetworkModule
 import com.example.attendanceapp.api.OrgLoginRequest
+import com.example.attendanceapp.api.OrgLoginResponse
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import com.example.attendanceapp.data.DataStoreManager
@@ -154,6 +155,7 @@ fun OrgLoginScreen(navController: NavController) {
                                             val json = Gson().toJson(response)
                                             Log.d("OrgLoginScreen", "Saving organization data to DataStore: $json")
                                             DataStoreManager.saveOrg(navController.context, json)
+                                            DataStoreManager.saveOrgPhone(navController.context, "+91$phone")
                                             OrgDataManager.setOrgData(response)
                                             navController.navigate("orgDashboard")
                                         },
