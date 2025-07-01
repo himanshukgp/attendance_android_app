@@ -332,12 +332,12 @@ fun AttendanceDetailScreen(navController: NavController, selectedDateArg: String
             )
         },
         bottomBar = {
-            // Re-using the navigation logic from the other screen
-            NavigationBar {
+            NavigationBar(
+                modifier = Modifier.height(48.dp)
+            ) {
                 NavigationBarItem(
                     selected = currentRoute == "employeeAccount",
                     icon = { Icon(Icons.Default.Person, contentDescription = "Account") },
-                    label = { Text("Account") },
                     onClick = {
                         navController.navigate("employeeAccount") {
                             popUpTo(navController.graph.startDestinationId)
@@ -348,7 +348,6 @@ fun AttendanceDetailScreen(navController: NavController, selectedDateArg: String
                 NavigationBarItem(
                     selected = currentRoute == "attendanceDetail",
                     icon = { Icon(Icons.Default.CalendarToday, contentDescription = "Attendance") },
-                    label = { Text("Attendance") },
                     onClick = {
                         val today = SimpleDateFormat("dd/MM/yyyy").format(Date())
                         val encodedDate = URLEncoder.encode(today, "UTF-8")
@@ -361,7 +360,6 @@ fun AttendanceDetailScreen(navController: NavController, selectedDateArg: String
                 NavigationBarItem(
                     selected = currentRoute == "calendarSummary",
                     icon = { Icon(Icons.Default.BarChart, contentDescription = "Summary") },
-                    label = { Text("Summary") },
                     onClick = {
                         navController.navigate("calendarSummary") {
                             popUpTo(navController.graph.startDestinationId)
