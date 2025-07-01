@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -29,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,6 +55,27 @@ import com.example.attendanceapp.data.EmployeeDataManager
 import com.example.attendanceapp.worker.LogStatusWorker
 import java.util.concurrent.TimeUnit
 import android.util.Log
+import com.example.attendanceapp.screens.EmployeeTopBar
+import com.example.attendanceapp.data.DataStoreManager
+import android.content.Context
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.rememberDatePickerState
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.net.URLDecoder
+import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Date
 
 data class UiShift(
     val name: String,
@@ -117,35 +142,191 @@ fun getTimelineDataFromApi(): List<Pair<Color, Float>> {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AttendanceDetailScreen(navController: NavController) {
+fun AttendanceDetailScreen(navController: NavController, selectedDateArg: String?) {
     val context = LocalContext.current
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    var isLoggingEnabled by remember { mutableStateOf(false) }
+    var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
+
+    // Date picker state
+    val dateFormatter = remember { java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()) }
+    val decodedDateArg = selectedDateArg?.let { URLDecoder.decode(it, "UTF-8") }
+    var selectedDate by remember {
+        mutableStateOf(
+            decodedDateArg ?: DataStoreManager.getSelectedDate(context) ?: dateFormatter.format(java.util.Date())
+        )
+    }
+    var showDatePicker by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Initialize toggle state from DataStore and employee data
+    LaunchedEffect(selectedDate) {
+        isLoggingEnabled = DataStoreManager.getWorkerToggleState(context)
+        if (EmployeeDataManager.getEmployeeData() == null || decodedDateArg != null) {
+            DataStoreManager.getEmployee(context)?.let { json ->
+                try {
+                    val employee = com.google.gson.Gson().fromJson(json, com.example.attendanceapp.api.EmployeeLoginResponse::class.java)
+                    EmployeeDataManager.setEmployeeData(employee)
+                    Log.d("AttendanceDetailScreen", "Loaded employee data from DataStore")
+                } catch (e: Exception) {
+                    Log.e("AttendanceDetailScreen", "Failed to parse employee data from DataStore", e)
+                }
+            }
+        }
+        // If a date is provided, make the API call for that date
+        if (decodedDateArg != null) {
+            coroutineScope.launch {
+                isLoading = true
+                errorMessage = null
+                try {
+                    val phone = DataStoreManager.getEmployeePhone(context)
+                    val employeeData = EmployeeDataManager.getEmployeeData()
+                    val imei = employeeData?.imei1 ?: ""
+                    if (!phone.isNullOrBlank() && imei.isNotBlank()) {
+                        val request = com.example.attendanceapp.api.EmployeeLoginRequest(
+                            phone = phone,
+                            selected_date = decodedDateArg,
+                            imei = imei
+                        )
+                        Log.d("AttendanceDetailScreen", "Making API call with phone: $phone, date: $decodedDateArg, imei: $imei")
+                        val response = com.example.attendanceapp.api.NetworkModule.apiService.employeeLogin(request)
+                        EmployeeDataManager.setEmployeeData(response)
+                        val employeeJson = com.google.gson.Gson().toJson(response)
+                        DataStoreManager.saveEmployee(context, employeeJson)
+                        DataStoreManager.saveEmployeePhone(context, phone)
+                        Log.d("AttendanceDetailScreen", "Employee data refresh completed successfully for date $decodedDateArg")
+                        selectedDate = decodedDateArg
+                    } else {
+                        errorMessage = "Phone or IMEI missing."
+                    }
+                } catch (e: Exception) {
+                    Log.e("AttendanceDetailScreen", "Failed to refresh employee data for date $decodedDateArg", e)
+                    errorMessage = "Failed to refresh data. Please try again."
+                } finally {
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    val employeeData = EmployeeDataManager.getEmployeeData()
+    if (employeeData == null || isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (isLoading) {
+                CircularProgressIndicator()
+            } else {
+                Text("Loading employee data...", color = Color.Gray)
+            }
+        }
+        return
+    }
+
+    // Date picker dialog
+    val datePickerState = rememberDatePickerState()
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val millis = datePickerState.selectedDateMillis
+                    if (millis != null) {
+                        val pickedDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
+                        selectedDate = pickedDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                        DataStoreManager.saveSelectedDate(context, selectedDate)
+                        showDatePicker = false
+                        // Call API with new date
+                        coroutineScope.launch {
+                            isLoading = true
+                            errorMessage = null
+                            try {
+                                val phone = DataStoreManager.getEmployeePhone(context)
+                                val imei = employeeData.imei1
+                                if (!phone.isNullOrBlank() && !imei.isNullOrBlank()) {
+                                    val request = com.example.attendanceapp.api.EmployeeLoginRequest(
+                                        phone = phone,
+                                        selected_date = selectedDate,
+                                        imei = imei
+                                    )
+                                    Log.d("AttendanceDetailScreen", "Making API call with phone: $phone, date: $selectedDate, imei: $imei")
+                                    val response = com.example.attendanceapp.api.NetworkModule.apiService.employeeLogin(request)
+                                    EmployeeDataManager.setEmployeeData(response)
+                                    val employeeJson = com.google.gson.Gson().toJson(response)
+                                    DataStoreManager.saveEmployee(context, employeeJson)
+                                    DataStoreManager.saveEmployeePhone(context, phone)
+                                    Log.d("AttendanceDetailScreen", "Employee data refresh completed successfully for date $selectedDate")
+                                } else {
+                                    errorMessage = "Phone or IMEI missing."
+                                }
+                            } catch (e: Exception) {
+                                Log.e("AttendanceDetailScreen", "Failed to refresh employee data for date $selectedDate", e)
+                                errorMessage = "Failed to refresh data. Please try again."
+                            } finally {
+                                isLoading = false
+                            }
+                        }
+                    } else {
+                        showDatePicker = false
+                    }
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            },
+            content = {
+                DatePicker(state = datePickerState)
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Attendance", fontWeight = FontWeight.Bold) },
-                actions = {
-                    Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(
-                        checked = isLoggingEnabled,
-                        onCheckedChange = {
-                            isLoggingEnabled = it
-                            if (it) {
-                                Log.d("AttendanceDetailScreen", "Toggle ON: Scheduling worker.")
-                                scheduleLogStatusWorker(context)
+            EmployeeTopBar(
+                title = "Attendance",
+                isLoggingEnabled = isLoggingEnabled,
+                onToggleChanged = {
+                    isLoggingEnabled = it
+                    if (it) {
+                        Log.d("AttendanceDetailScreen", "Toggle ON: Scheduling worker.")
+                        scheduleLogStatusWorker(context)
+                    } else {
+                        Log.d("AttendanceDetailScreen", "Toggle OFF: Cancelling worker.")
+                        WorkManager.getInstance(context).cancelUniqueWork("log_status_worker")
+                    }
+                },
+                onRefresh = {
+                    coroutineScope.launch {
+                        isLoading = true
+                        errorMessage = null
+                        val today = dateFormatter.format(java.util.Date())
+                        selectedDate = today
+                        DataStoreManager.saveSelectedDate(context, today)
+                        try {
+                            val phone = DataStoreManager.getEmployeePhone(context)
+                            val imei = employeeData.imei1
+                            if (!phone.isNullOrBlank() && !imei.isNullOrBlank()) {
+                                val request = com.example.attendanceapp.api.EmployeeLoginRequest(
+                                    phone = phone,
+                                    selected_date = today,
+                                    imei = imei
+                                )
+                                Log.d("AttendanceDetailScreen", "Refreshing with phone: $phone, date: $today, imei: $imei")
+                                val response = com.example.attendanceapp.api.NetworkModule.apiService.employeeLogin(request)
+                                EmployeeDataManager.setEmployeeData(response)
+                                val employeeJson = com.google.gson.Gson().toJson(response)
+                                DataStoreManager.saveEmployee(context, employeeJson)
+                                DataStoreManager.saveEmployeePhone(context, phone)
+                                Log.d("AttendanceDetailScreen", "Employee data refresh completed successfully for date $today")
                             } else {
-                                Log.d("AttendanceDetailScreen", "Toggle OFF: Cancelling worker.")
-                                WorkManager.getInstance(context).cancelUniqueWork("log_status_worker")
+                                errorMessage = "Phone or IMEI missing."
                             }
-                        },
-                        modifier = Modifier.height(20.dp)
-                    )
-                    IconButton(onClick = { /* TODO: Refresh action */ }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        } catch (e: Exception) {
+                            Log.e("AttendanceDetailScreen", "Failed to refresh employee data for date $today", e)
+                            errorMessage = "Failed to refresh data. Please try again."
+                        } finally {
+                            isLoading = false
+                        }
                     }
                 }
             )
@@ -169,7 +350,9 @@ fun AttendanceDetailScreen(navController: NavController) {
                     icon = { Icon(Icons.Default.CalendarToday, contentDescription = "Attendance") },
                     label = { Text("Attendance") },
                     onClick = {
-                        navController.navigate("attendanceDetail") {
+                        val today = SimpleDateFormat("dd/MM/yyyy").format(Date())
+                        val encodedDate = URLEncoder.encode(today, "UTF-8")
+                        navController.navigate("attendanceDetail/$encodedDate") {
                             popUpTo(navController.graph.startDestinationId)
                             launchSingleTop = true
                         }
@@ -194,49 +377,69 @@ fun AttendanceDetailScreen(navController: NavController) {
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
+            if (errorMessage != null) {
+                Text(errorMessage!!, color = Color.Red, modifier = Modifier.padding(vertical = 8.dp))
+            }
             Spacer(modifier = Modifier.height(16.dp))
-            AttendanceInfoBar()
+            // Attendance Info Bar with clickable date
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "In: ${employeeData.inTime ?: "-"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF4CAF50),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "Hrs: ${employeeData.hours ?: "-"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    selectedDate,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(Color.Transparent)
+                        .clickable { showDatePicker = true }
+                )
+            }
             Spacer(modifier = Modifier.height(16.dp))
-            TimelineBar(data = getTimelineDataFromApi(), height = 12.dp)
+            val timelineData = employeeData.shifts?.values?.flatMap { shift ->
+                val ti = shift.ti.toString().toFloatOrNull() ?: 0f
+                val to = shift.to.toString().toFloatOrNull() ?: 0f
+                listOf(Color.Green to (if (ti > 0f) ti / 8f else 0f), Color.Red to (if (to > 0f) to / 8f else 0f))
+            } ?: emptyList()
+            TimelineBar(data = timelineData, height = 24.dp)
             Spacer(modifier = Modifier.height(16.dp))
             Legend()
             Spacer(modifier = Modifier.height(16.dp))
-            ShiftList(shifts = getShiftsFromApiData())
+            val shifts = employeeData.shifts?.map { (shiftName, shiftData) ->
+                UiShift(
+                    name = shiftName,
+                    startTime = shiftData.inn,
+                    inOfficeDuration = "${shiftData.ti} hrs",
+                    endTime = shiftData.out,
+                    outOfOfficeDuration = if (shiftData.to.toString() != "-") "Out for ${shiftData.to} hrs" else null
+                )
+            } ?: emptyList()
+            ShiftList(shifts = shifts)
         }
     }
 }
-
-@Composable
-fun AttendanceInfoBar() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("In: ${EmployeeDataManager.getLoginTime()}", fontSize = 14.sp)
-        Text("Hrs: ${EmployeeDataManager.getCurrentHours()}", fontSize = 14.sp, color = Color.Gray)
-        Text("Jun 20, 2025", fontSize = 14.sp, color = Color.Gray)
-    }
-}
-
-//@Composable
-//fun TimelineBar(data: List<Pair<Color, Float>>, height: Dp) {
-//    Row(
-//        modifier = Modifier
-//            .fillMaxWidth()
-//            .height(height)
-//            .clip(CircleShape)
-//    ) {
-//        data.forEach { (color, weight) ->
-//            Box(
-//                modifier = Modifier
-//                    .background(color)
-//                    .weight(weight)
-//                    .fillMaxHeight()
-//            )
-//        }
-//    }
-//}
 
 @Composable
 fun Legend() {
@@ -277,42 +480,72 @@ fun ShiftItem(shift: UiShift) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(shift.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(shift.startTime, color = Color.Gray, fontSize = 14.sp)
-                Text("----${shift.inOfficeDuration}----", color = Color.Gray, fontSize = 12.sp)
-                Text(shift.endTime, color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            }
+            Text(
+                shift.name,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                shift.startTime,
+                color = Color.Gray,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                "----${shift.inOfficeDuration}----",
+                color = Color.Gray,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1.5f)
+            )
+            Text(
+                shift.endTime,
+                color = Color.Red,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
         }
         shift.outOfOfficeDuration?.let {
             Text(
                 text = it,
                 color = Color.Gray,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.End)
             )
         }
     }
 }
 
-
 @Preview(showBackground = true)
 @Composable
 fun AttendanceDetailScreenPreview() {
     // We need a NavController for the preview.
     val navController = rememberNavController()
-    AttendanceDetailScreen(navController = navController)
+    AttendanceDetailScreen(navController = navController, selectedDateArg = null)
 }
 
-private fun scheduleLogStatusWorker(context: android.content.Context) {
-    Log.d("AttendanceDetailScreen", "Scheduling log status worker")
-    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
+private fun scheduleLogStatusWorker(context: Context) {
+    val logStatusWorkRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(
+        java.time.Duration.ofMinutes(15)
+    ).build()
+
     WorkManager.getInstance(context).enqueueUniquePeriodicWork(
         "log_status_worker",
-        ExistingPeriodicWorkPolicy.REPLACE,
-        workRequest
+        ExistingPeriodicWorkPolicy.KEEP,
+        logStatusWorkRequest
     )
 }
 
