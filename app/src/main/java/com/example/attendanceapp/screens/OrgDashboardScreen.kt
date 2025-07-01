@@ -52,6 +52,14 @@ import java.util.concurrent.TimeUnit
 import android.util.Log
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.rememberCoroutineScope
+import com.example.attendanceapp.api.NetworkModule
+import com.example.attendanceapp.api.OrgLoginRequest
+import com.google.gson.Gson
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,7 +68,32 @@ fun OrgDashboardScreen(navController: NavController) {
     val currentRoute = navBackStackEntry?.destination?.route
     val orgData = OrgDataManager.getOrgData()
     val context = LocalContext.current
-    var isLoggingEnabled by remember { mutableStateOf(false) }
+    var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val refreshData = {
+        coroutineScope.launch {
+            try {
+                Log.d("OrgDashboardScreen", "Starting organization data refresh...")
+                val phone = DataStoreManager.getOrgPhone(context)
+                if (phone != null) {
+                    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                    val currentDate = sdf.format(Date())
+                    val request = OrgLoginRequest(phone = phone, selected_date = currentDate)
+                    Log.d("OrgDashboardScreen", "Making API call with phone: $phone, date: $currentDate")
+                    val response = NetworkModule.apiService.orgLogin(request)
+                    OrgDataManager.setOrgData(response)
+                    val orgJson = Gson().toJson(response)
+                    DataStoreManager.saveOrg(context, orgJson)
+                    Log.d("OrgDashboardScreen", "Organization data refresh completed successfully")
+                } else {
+                    Log.w("OrgDashboardScreen", "Cannot refresh: organization phone not found")
+                }
+            } catch (e: Exception) {
+                Log.e("OrgDashboardScreen", "Failed to refresh organization data", e)
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -73,6 +106,7 @@ fun OrgDashboardScreen(navController: NavController) {
                         checked = isLoggingEnabled,
                         onCheckedChange = {
                             isLoggingEnabled = it
+                            DataStoreManager.saveWorkerToggleState(context, it)
                             if (it) {
                                 Log.d("OrgDashboardScreen", "Toggle ON: Scheduling worker.")
                                 scheduleOrgLogStatusWorker(context)
@@ -83,7 +117,7 @@ fun OrgDashboardScreen(navController: NavController) {
                         },
                         modifier = Modifier.height(20.dp)
                     )
-                    IconButton(onClick = { /* TODO: Refresh action */ }) {
+                    IconButton(onClick = { refreshData() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 }
@@ -159,12 +193,14 @@ fun InfoRow(label: String, value: String) {
 }
 
 private fun scheduleOrgLogStatusWorker(context: Context) {
-    Log.d("OrgDashboardScreen", "Scheduling organization log status worker")
-    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
+    val logStatusWorkRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(
+        java.time.Duration.ofHours(1)
+    ).build()
+
     WorkManager.getInstance(context).enqueueUniquePeriodicWork(
         "log_status_worker_org",
-        ExistingPeriodicWorkPolicy.REPLACE,
-        workRequest
+        ExistingPeriodicWorkPolicy.KEEP,
+        logStatusWorkRequest
     )
 }
 
