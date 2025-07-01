@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.example.attendanceapp.screens.AttendanceDetailScreen
 import com.example.attendanceapp.screens.CalendarSummaryScreen
 import com.example.attendanceapp.screens.EmployeeAccountScreen
@@ -18,10 +20,26 @@ fun AppNavigation(startDestination: String) {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = startDestination) {
-        composable("login") { LoginScreen(navController) }
+        composable("login") {
+            LoginScreen(
+                onEmployeeLogin = {
+                    navController.navigate("employeeAccount") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                },
+                onOrgLogin = {
+                    navController.navigate("orgLogin")
+                }
+            )
+        }
         composable("orgLogin") { OrgLoginScreen(navController) }
         composable("employeeAccount") { EmployeeAccountScreen(navController) }
-        composable("attendanceDetail") { AttendanceDetailScreen(navController) }
+        composable(
+            "attendanceDetail/{selectedDate}",
+            arguments = listOf(navArgument("selectedDate") { type = NavType.StringType })
+        ) { backStackEntry ->
+            AttendanceDetailScreen(navController, backStackEntry.arguments?.getString("selectedDate"))
+        }
         composable("calendarSummary") { CalendarSummaryScreen(navController) }
         composable("orgDashboard") { OrgDashboardScreen(navController) }
         composable("orgAttendance") { OrgAttendanceScreen(navController) }
