@@ -1,7 +1,7 @@
 package com.example.attendanceapp.data
 
-import com.example.attendanceapp.screens.OrgLoginResponse
 import android.util.Log
+import com.example.attendanceapp.api.OrgLoginResponse
 
 object OrgDataManager {
     private var orgData: OrgLoginResponse? = null
