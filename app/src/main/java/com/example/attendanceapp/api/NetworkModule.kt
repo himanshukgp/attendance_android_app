@@ -2,6 +2,7 @@ package com.example.attendanceapp.api
 
 import android.util.Log
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -42,10 +43,14 @@ object NetworkModule {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
     
+    private val gson = GsonBuilder()
+        .registerTypeAdapter(EmployeeLoginResponse::class.java, EmployeeLoginResponseDeserializer())
+        .create()
+    
     private val retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
         .client(okHttpClient)
-        .addConverterFactory(GsonConverterFactory.create(Gson()))
+        .addConverterFactory(GsonConverterFactory.create(gson))
         .build()
     
     val apiService: ApiService = retrofit.create(ApiService::class.java)
