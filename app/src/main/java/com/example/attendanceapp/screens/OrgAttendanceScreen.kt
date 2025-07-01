@@ -36,6 +36,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,15 @@ import com.example.attendanceapp.data.OrgDataManager
 import com.example.attendanceapp.worker.LogStatusWorker
 import java.util.concurrent.TimeUnit
 import android.util.Log
+import com.example.attendanceapp.data.DataStoreManager
+import androidx.compose.runtime.rememberCoroutineScope
+import com.example.attendanceapp.api.NetworkModule
+import com.example.attendanceapp.api.OrgLoginRequest
+import com.google.gson.Gson
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class EmployeeAttendance(
     val name: String,
@@ -103,7 +113,37 @@ fun OrgAttendanceScreen(navController: NavController) {
     val currentRoute = navBackStackEntry?.destination?.route
     val orgData = OrgDataManager.getOrgData()
     val context = LocalContext.current
-    var isLoggingEnabled by remember { mutableStateOf(false) }
+    var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Initialize toggle state from DataStore
+    LaunchedEffect(Unit) {
+        isLoggingEnabled = DataStoreManager.getWorkerToggleState(context)
+    }
+
+    val refreshData = {
+        coroutineScope.launch {
+            try {
+                Log.d("OrgAttendanceScreen", "Starting organization data refresh...")
+                val phone = DataStoreManager.getOrgPhone(context)
+                if (phone != null) {
+                    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                    val currentDate = sdf.format(Date())
+                    val request = OrgLoginRequest(phone = phone, selected_date = currentDate)
+                    Log.d("OrgAttendanceScreen", "Making API call with phone: $phone, date: $currentDate")
+                    val response = NetworkModule.apiService.orgLogin(request)
+                    OrgDataManager.setOrgData(response)
+                    val orgJson = Gson().toJson(response)
+                    DataStoreManager.saveOrg(context, orgJson)
+                    Log.d("OrgAttendanceScreen", "Organization data refresh completed successfully")
+                } else {
+                    Log.w("OrgAttendanceScreen", "Cannot refresh: organization phone not found")
+                }
+            } catch (e: Exception) {
+                Log.e("OrgAttendanceScreen", "Failed to refresh organization data", e)
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -116,6 +156,7 @@ fun OrgAttendanceScreen(navController: NavController) {
                         checked = isLoggingEnabled,
                         onCheckedChange = {
                             isLoggingEnabled = it
+                            DataStoreManager.saveWorkerToggleState(context, it)
                             if (it) {
                                 Log.d("OrgAttendanceScreen", "Toggle ON: Scheduling worker.")
                                 scheduleOrgLogStatusWorker(context)
@@ -126,7 +167,7 @@ fun OrgAttendanceScreen(navController: NavController) {
                         },
                         modifier = Modifier.height(20.dp)
                     )
-                    IconButton(onClick = { /* TODO: Refresh action */ }) {
+                    IconButton(onClick = { refreshData() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 }
@@ -281,12 +322,14 @@ fun OrgAttendanceScreenPreview() {
 }
 
 private fun scheduleOrgLogStatusWorker(context: Context) {
-    Log.d("OrgAttendanceScreen", "Scheduling organization log status worker")
-    val workRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(1, TimeUnit.HOURS).build()
+    val logStatusWorkRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(
+        java.time.Duration.ofHours(1)
+    ).build()
+
     WorkManager.getInstance(context).enqueueUniquePeriodicWork(
         "log_status_worker_org",
-        ExistingPeriodicWorkPolicy.REPLACE,
-        workRequest
+        ExistingPeriodicWorkPolicy.KEEP,
+        logStatusWorkRequest
     )
 }
 
