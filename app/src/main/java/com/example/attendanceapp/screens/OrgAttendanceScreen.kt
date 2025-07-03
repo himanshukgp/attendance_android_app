@@ -193,14 +193,7 @@ fun OrgAttendanceScreen(navController: NavController) {
                         checked = isLoggingEnabled,
                         onCheckedChange = {
                             isLoggingEnabled = it
-                            DataStoreManager.saveWorkerToggleState(context, it)
-                            if (it) {
-                                Log.d("OrgAttendanceScreen", "Toggle ON: Scheduling worker.")
-                                scheduleOrgLogStatusWorker(context)
-                            } else {
-                                Log.d("OrgAttendanceScreen", "Toggle OFF: Cancelling worker.")
-                                WorkManager.getInstance(context).cancelUniqueWork("log_status_worker_org")
-                            }
+                            com.example.attendanceapp.data.LogStatusManager.toggleLogging(context, it)
                         },
                         modifier = Modifier.height(20.dp)
                     )
