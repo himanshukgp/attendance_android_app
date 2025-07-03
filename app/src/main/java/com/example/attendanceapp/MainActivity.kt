@@ -23,10 +23,43 @@ import com.google.gson.Gson
 import java.util.concurrent.TimeUnit
 import android.util.Log
 import com.example.attendanceapp.data.OrgDataManager
+import android.os.Build
+import androidx.core.app.ActivityCompat
+import android.content.pm.PackageManager
+import android.content.Intent
+import androidx.core.content.ContextCompat
+import android.app.AlertDialog
+import android.os.PowerManager
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Request notification permission for Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    1001
+                )
+            }
+        }
+
+        // Prompt user to disable battery optimization for this app
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        val packageName = packageName
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !pm.isIgnoringBatteryOptimizations(packageName)) {
+            AlertDialog.Builder(this)
+                .setTitle("Disable Battery Optimization")
+                .setMessage("To ensure background logging works reliably, please disable battery optimization for AttendanceApp.")
+                .setPositiveButton("Open Settings") { _, _ ->
+                    val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    startActivity(intent)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
 
         val employeeJson = DataStoreManager.getEmployee(this)
         val orgJson = DataStoreManager.getOrg(this)
@@ -52,6 +85,33 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     AppNavigation(startDestination = startDestination)
+                }
+            }
+        }
+
+        // Resume logging if toggle is ON and location permission is granted
+        if (com.example.attendanceapp.data.DataStoreManager.getWorkerToggleState(this)) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                val intent = Intent(this, com.example.attendanceapp.worker.LogStatusForegroundService::class.java)
+                ContextCompat.startForegroundService(this, intent)
+            } else {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION),
+                    1002
+                )
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1002) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                if (com.example.attendanceapp.data.DataStoreManager.getWorkerToggleState(this)) {
+                    val intent = Intent(this, com.example.attendanceapp.worker.LogStatusForegroundService::class.java)
+                    ContextCompat.startForegroundService(this, intent)
                 }
             }
         }
