@@ -46,7 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import com.example.attendanceapp.api.NetworkModule
 import com.example.attendanceapp.api.OrgLoginRequest
 import com.google.gson.Gson
-import kotlinx.coroutines.launch
+import  kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -101,14 +101,7 @@ fun OrgSummaryScreen(navController: NavController) {
                         checked = isLoggingEnabled,
                         onCheckedChange = {
                             isLoggingEnabled = it
-                            DataStoreManager.saveWorkerToggleState(context, it)
-                            if (it) {
-                                Log.d("OrgSummaryScreen", "Toggle ON: Scheduling worker.")
-                                scheduleOrgSummaryLogStatusWorker(context)
-                            } else {
-                                Log.d("OrgSummaryScreen", "Toggle OFF: Cancelling worker.")
-                                WorkManager.getInstance(context).cancelUniqueWork("log_status_worker_org")
-                            }
+                            com.example.attendanceapp.data.LogStatusManager.toggleLogging(context, it)
                         },
                         modifier = Modifier.height(20.dp)
                     )
