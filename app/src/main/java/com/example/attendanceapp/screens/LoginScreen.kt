@@ -69,6 +69,7 @@ import com.example.attendanceapp.api.OrgLoginResponse
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.tooling.preview.Preview
 
 // Data classes for API response are now in api/DataModels.kt
 
@@ -361,4 +362,10 @@ private fun performEmployeeLogin(
             }
         }
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun LoginScreenPreview() {
+    LoginScreen(onEmployeeLogin = {}, onOrgLogin = {})
 }
