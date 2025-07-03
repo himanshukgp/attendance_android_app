@@ -59,7 +59,7 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
-import com.example.attendanceapp.screens.EmployeeTopBar
+import com.example.attendanceapp.screens.AppTopBar
 import com.example.attendanceapp.data.DataStoreManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -103,19 +103,12 @@ fun CalendarSummaryScreen(navController: NavController) {
 
     Scaffold(
         topBar = {
-            EmployeeTopBar(
+            AppTopBar(
                 title = "Summary",
                 isLoggingEnabled = isLoggingEnabled,
                 onToggleChanged = {
                     isLoggingEnabled = it
-                    DataStoreManager.saveWorkerToggleState(context, it)
-                    if (it) {
-                        Log.d("CalendarSummaryScreen", "Toggle ON: Scheduling worker.")
-                        scheduleLogStatusWorker(context)
-                    } else {
-                        Log.d("CalendarSummaryScreen", "Toggle OFF: Cancelling worker.")
-                        WorkManager.getInstance(context).cancelUniqueWork("log_status_worker")
-                    }
+                    com.example.attendanceapp.data.LogStatusManager.toggleLogging(context, it)
                 },
                 onRefresh = { /* TODO: Implement refresh logic if needed */ }
             )
@@ -497,18 +490,6 @@ fun calculateProgress(hours: String): Float {
     } catch (e: Exception) {
         0f
     }
-}
-
-private fun scheduleLogStatusWorker(context: Context) {
-    val logStatusWorkRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(
-        java.time.Duration.ofHours(1)
-    ).build()
-
-    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-        "log_status_worker",
-        ExistingPeriodicWorkPolicy.KEEP,
-        logStatusWorkRequest
-    )
 }
 
 @Preview(showBackground = true)
