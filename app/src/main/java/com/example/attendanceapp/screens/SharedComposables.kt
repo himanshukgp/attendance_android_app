@@ -32,6 +32,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.ImageVector
 
 @Composable
 fun TimelineBar(data: List<Pair<Color, Float>>, height: Dp) {
@@ -39,7 +40,7 @@ fun TimelineBar(data: List<Pair<Color, Float>>, height: Dp) {
         modifier = Modifier
             .fillMaxWidth()
             .height(height)
-            .clip(CircleShape)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
     ) {
         data.forEach { (color, weight) ->
             if (weight > 0f) {
@@ -79,25 +80,62 @@ fun OrgBottomBar(navController: NavController, currentRoute: String?) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EmployeeTopBar(
+fun AppTopBar(
     title: String,
-    isLoggingEnabled: Boolean,
-    onToggleChanged: (Boolean) -> Unit,
-    onRefresh: () -> Unit
+    isLoggingEnabled: Boolean = false,
+    onToggleChanged: ((Boolean) -> Unit)? = null,
+    onRefresh: (() -> Unit)? = null,
+    navigationIcon: (() -> Unit)? = null
 ) {
     TopAppBar(
         title = { Text(title, fontWeight = FontWeight.Bold) },
+        navigationIcon = { if (navigationIcon != null) ({ navigationIcon() }) else null },
         actions = {
-            Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray, modifier = Modifier)
-            Spacer(modifier = Modifier.width(8.dp))
-            Switch(
-                checked = isLoggingEnabled,
-                onCheckedChange = onToggleChanged,
-                modifier = Modifier.height(20.dp)
-            )
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+            if (onToggleChanged != null) {
+                Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray)
+                Spacer(modifier = Modifier.width(8.dp))
+                Switch(
+                    checked = isLoggingEnabled,
+                    onCheckedChange = onToggleChanged,
+                    modifier = Modifier.height(20.dp)
+                )
+            }
+            if (onRefresh != null) {
+                IconButton(onClick = onRefresh) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                }
             }
         }
     )
-} 
+}
+
+@Composable
+fun AppBottomBar(
+    navController: NavController,
+    currentRoute: String?,
+    items: List<BottomBarItem>
+) {
+    NavigationBar(
+        modifier = Modifier.height(48.dp)
+    ) {
+        items.forEach { item ->
+            NavigationBarItem(
+                selected = currentRoute == item.route,
+                icon = { Icon(item.icon, contentDescription = item.label) },
+                onClick = {
+                    item.onClick?.invoke() ?: navController.navigate(item.route) {
+                        popUpTo(navController.graph.startDestinationId)
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+    }
+}
+
+data class BottomBarItem(
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val route: String,
+    val onClick: (() -> Unit)? = null
+) 
