@@ -50,6 +50,8 @@ import java.time.format.DateTimeFormatter
 import com.example.attendanceapp.data.DataStoreManager
 import com.example.attendanceapp.data.OrgDataManager
 import com.google.gson.Gson
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.compose.rememberNavController
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -233,4 +235,11 @@ private fun performOrgLogin(
             }
         }
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun OrgLoginScreenPreview() {
+    val navController = rememberNavController()
+    OrgLoginScreen(navController = navController)
 }
