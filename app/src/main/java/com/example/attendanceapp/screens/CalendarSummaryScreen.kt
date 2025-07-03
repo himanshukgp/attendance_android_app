@@ -90,8 +90,8 @@ fun CalendarSummaryScreen(navController: NavController) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
-    var currentMonth by remember { mutableStateOf(YearMonth.of(2025, 5)) }
-    var selectedDate by remember { mutableStateOf(LocalDate.of(2025, 5, 28)) } // Changed to match your image
+    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
 
     // Initialize toggle state from DataStore
     LaunchedEffect(Unit) {
