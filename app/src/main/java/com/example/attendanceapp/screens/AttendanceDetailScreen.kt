@@ -497,15 +497,3 @@ fun AttendanceDetailScreenPreview() {
     AttendanceDetailScreen(navController = navController, selectedDateArg = null)
 }
 
-private fun scheduleLogStatusWorker(context: Context) {
-    val logStatusWorkRequest = PeriodicWorkRequestBuilder<LogStatusWorker>(
-        java.time.Duration.ofMinutes(15)
-    ).build()
-
-    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-        "log_status_worker",
-        ExistingPeriodicWorkPolicy.KEEP,
-        logStatusWorkRequest
-    )
-}
-
