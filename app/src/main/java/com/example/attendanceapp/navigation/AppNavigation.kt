@@ -14,12 +14,16 @@ import com.example.attendanceapp.screens.OrgAttendanceScreen
 import com.example.attendanceapp.screens.OrgDashboardScreen
 import com.example.attendanceapp.screens.OrgLoginScreen
 import com.example.attendanceapp.screens.OrgSummaryScreen
+import com.example.attendanceapp.screens.OnboardingScreen
 
 @Composable
 fun AppNavigation(startDestination: String) {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = startDestination) {
+        composable("onboarding") {
+            OnboardingScreen(onNext = { navController.navigate("login") { popUpTo("onboarding") { inclusive = true } } })
+        }
         composable("login") {
             LoginScreen(
                 onEmployeeLogin = {
