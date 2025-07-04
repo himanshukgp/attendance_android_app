@@ -35,15 +35,30 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Request notification permission for Android 13+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-                    1001
-                )
-            }
+        // Request notification and location permissions for Android 10+
+        val fineGranted = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val bgGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        } else true
+
+        if (!fineGranted || !coarseGranted) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                1001
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !bgGranted) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                1002
+            )
+        } else {
+            // All permissions granted, proceed as normal
         }
 
         // Prompt user to disable battery optimization for this app
@@ -61,10 +76,14 @@ class MainActivity : ComponentActivity() {
                 .show()
         }
 
+        val prefs = getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
+        val onboardingComplete = prefs.getBoolean("onboarding_complete", false)
+        val onboardingJustCompleted = prefs.getBoolean("onboarding_just_completed", false)
         val employeeJson = DataStoreManager.getEmployee(this)
         val orgJson = DataStoreManager.getOrg(this)
-
-        val startDestination = if (employeeJson != null) {
+        val startDestination = if (!onboardingComplete) {
+            "onboarding"
+        } else if (employeeJson != null) {
             "employeeAccount"
         } else if (orgJson != null) {
             try {
@@ -77,7 +96,6 @@ class MainActivity : ComponentActivity() {
         } else {
             "login"
         }
-
         setContent {
             AttendanceAppTheme {
                 Surface(
@@ -87,6 +105,11 @@ class MainActivity : ComponentActivity() {
                     AppNavigation(startDestination = startDestination)
                 }
             }
+        }
+        // Only request permissions if onboarding was just completed
+        if (onboardingJustCompleted) {
+            prefs.edit().putBoolean("onboarding_just_completed", false).apply()
+            requestAllPermissions()
         }
 
         // Resume logging if toggle is ON and location permission is granted
@@ -107,14 +130,63 @@ class MainActivity : ComponentActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1002) {
+        if (requestCode == 1001) {
+            val fineGranted = grantResults.getOrNull(0) == PackageManager.PERMISSION_GRANTED
+            val coarseGranted = grantResults.getOrNull(1) == PackageManager.PERMISSION_GRANTED
+            if (fineGranted || coarseGranted) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                        1002
+                    )
+                } else if (com.example.attendanceapp.data.DataStoreManager.getWorkerToggleState(this)) {
+                    val intent = Intent(this, com.example.attendanceapp.worker.LogStatusForegroundService::class.java)
+                    ContextCompat.startForegroundService(this, intent)
+                }
+            }
+        } else if (requestCode == 1002) {
+            val bgGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+            } else true
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 if (com.example.attendanceapp.data.DataStoreManager.getWorkerToggleState(this)) {
                     val intent = Intent(this, com.example.attendanceapp.worker.LogStatusForegroundService::class.java)
                     ContextCompat.startForegroundService(this, intent)
                 }
+            } else if (!bgGranted) {
+                // Show dialog to guide user to system settings for 'Allow all the time'
+                AlertDialog.Builder(this)
+                    .setTitle("Background Location Required")
+                    .setMessage("To enable full background tracking, please allow 'All the time' location access in system settings.")
+                    .setPositiveButton("Open Settings") { _, _ ->
+                        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        intent.data = android.net.Uri.fromParts("package", packageName, null)
+                        startActivity(intent)
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
             }
         }
+    }
+
+    private fun requestAllPermissions() {
+        val permissions = mutableListOf(
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            android.Manifest.permission.READ_PHONE_STATE
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            permissions.add(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        ActivityCompat.requestPermissions(
+            this,
+            permissions.toTypedArray(),
+            1000
+        )
     }
 }
 
