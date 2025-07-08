@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -304,14 +305,18 @@ fun FilterLabelValue(label: String, value: String, options: List<String>, onValu
 
 @Composable
 fun EmployeeAttendanceCardStyled(employee: EmployeeAttendance) {
+    var isExpanded by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFFF5F5F5), RoundedCornerShape(18.dp)),
+            .background(Color(0xFFF5F5F5), RoundedCornerShape(18.dp))
+            .clickable { isExpanded = !isExpanded },
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(18.dp)
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
+            // Basic info (always visible)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -340,6 +345,125 @@ fun EmployeeAttendanceCardStyled(employee: EmployeeAttendance) {
             )
             Spacer(modifier = Modifier.height(14.dp))
             TimelineBarStyled(shifts = employee.shifts)
+
+            // Expanded content
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(16.dp))
+                ShiftDetailsTable(shifts = employee.shifts)
+            }
+        }
+    }
+}
+
+@Composable
+fun ShiftDetailsTable(shifts: Map<String, ShiftData>) {
+    val sortedShifts = shifts.toList().sortedBy { it.first }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF9F9F9), RoundedCornerShape(8.dp))
+            .padding(12.dp)
+    ) {
+        // Table header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Shift",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF333333),
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "From",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF333333),
+                modifier = Modifier.weight(1.5f),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "To",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF333333),
+                modifier = Modifier.weight(1.5f),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Till",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF333333),
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Break",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF333333),
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Table rows
+        sortedShifts.forEachIndexed { index, (shiftKey, shift) ->
+            val shiftNumber = shiftKey.removePrefix("Shift_")
+            val tillHours = String.format("%.2f", shift.ti)
+            val breakHours = String.format("%.2f", shift.to)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = shiftNumber,
+                    fontSize = 11.sp,
+                    color = Color(0xFF666666),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = shift.inTime,
+                    fontSize = 11.sp,
+                    color = Color(0xFF666666),
+                    modifier = Modifier.weight(1.5f),
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = shift.outTime,
+                    fontSize = 11.sp,
+                    color = Color(0xFF666666),
+                    modifier = Modifier.weight(1.5f),
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "${tillHours}h",
+                    fontSize = 11.sp,
+                    color = Color(0xFF4CAF50),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "${breakHours}h",
+                    fontSize = 11.sp,
+                    color = Color(0xFFF44336),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            if (index < sortedShifts.size - 1) {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
         }
     }
 }
