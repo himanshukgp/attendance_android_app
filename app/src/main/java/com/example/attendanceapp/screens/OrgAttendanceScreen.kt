@@ -40,6 +40,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,6 +81,11 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Calendar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 
 // Data classes for employee data
 data class EmployeeAttendance(
@@ -104,11 +115,17 @@ fun OrgAttendanceScreen(navController: NavController) {
     val context = LocalContext.current
     var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
     val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // Filter states
     var selectedName by remember { mutableStateOf("All") }
-    var selectedMonth by remember { mutableStateOf("June 2025") }
-    var selectedDate by remember { mutableStateOf("All") }
+    // Default selectedMonth to current month and year
+    val today = remember { Date() }
+    val currentMonthYear = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(today)
+    var selectedMonth by remember { mutableStateOf(currentMonthYear) }
+    // Default selectedDate to today's day as string
+    val defaultDay = SimpleDateFormat("d", Locale.getDefault()).format(today)
+    var selectedDate by remember { mutableStateOf(defaultDay) }
 
     // Parse employee data from orgData
     val employeeData = remember(orgData, selectedName, selectedMonth, selectedDate) {
@@ -135,12 +152,17 @@ fun OrgAttendanceScreen(navController: NavController) {
                 // Apply filters
                 val nameMatch = selectedName == "All" || employee.name == selectedName
                 val monthMatch = selectedMonth == "All" || isDateInMonth(employee.date, selectedMonth)
-                val dateMatch = selectedDate == "All" || employee.date == selectedDate
+                val dateMatch = selectedDate == "All" || employee.date == buildDateString(selectedDate, selectedMonth)
 
                 nameMatch && monthMatch && dateMatch
             }
         } ?: emptyList()
     }
+
+    // Find employees with and without attendance for selected date
+    val allEmployees = orgData?.employeeList ?: emptyList()
+    val selectedDateString = buildDateString(selectedDate, selectedMonth)
+    val employeesWithAttendance = employeeData.map { it.id }.toSet()
 
     // Get unique names, months, and dates for filters
     val uniqueNames = remember(orgData) {
@@ -148,11 +170,15 @@ fun OrgAttendanceScreen(navController: NavController) {
     }
 
     val uniqueMonths = remember(orgData) {
-        listOf("All", "June 2025") + (orgData?.employeeList?.map { getMonthFromDate(it.date) }?.distinct()?.filterNot { it == "June 2025" } ?: emptyList())
+        val months = (orgData?.employeeList?.map { getMonthFromDate(it.date) }?.distinct() ?: emptyList()).toMutableList()
+        if (!months.contains(currentMonthYear)) months.add(0, currentMonthYear)
+        listOf("All") + months
     }
 
-    val uniqueDates = remember(orgData) {
-        listOf("All") + (orgData?.employeeList?.map { it.date }?.distinct() ?: emptyList())
+    // Date filter: show 1..lastDayOfMonth for selectedMonth
+    val uniqueDates = remember(selectedMonth) {
+        val days = getDaysInMonth(selectedMonth)
+        listOf("All") + (1..days).map { it.toString() }
     }
 
     // Initialize toggle state from DataStore
@@ -207,7 +233,8 @@ fun OrgAttendanceScreen(navController: NavController) {
         },
         bottomBar = {
             OrgBottomBar(navController, currentRoute)
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -255,6 +282,41 @@ fun OrgAttendanceScreen(navController: NavController) {
             LazyColumn(modifier = Modifier.padding(horizontal = 0.dp)) {
                 items(employeeData) { employee ->
                     EmployeeAttendanceCardStyled(employee = employee)
+                    Spacer(modifier = Modifier.height(18.dp))
+                }
+                // Show MarkAttendanceCard only for unique employees without attendance marked
+                val uniqueEmployees = allEmployees.distinctBy { it.name }
+                // Only show MarkAttendanceCard for unique employees who do NOT have attendance marked for the selected date
+                val uniqueUnmarkedEmployees = uniqueEmployees.filter { emp ->
+                    !(employeesWithAttendance.contains(emp.id) && emp.date == selectedDateString)
+                }
+                items(uniqueUnmarkedEmployees) { emp ->
+                    MarkAttendanceCard(
+                        name = emp.name,
+                        phoneNumber = emp.phoneNumber,
+                        date = selectedDateString,
+                        alreadyMarked = false,
+                        markedStatus = null,
+                        onMark = { status ->
+                            coroutineScope.launch {
+                                try {
+                                    val phone = DataStoreManager.getOrgPhone(context)
+                                    if (phone != null) {
+                                        val response = markAttendanceApiCall(phone, emp.phoneNumber, selectedDateString, status)
+                                        if (response.isSuccessful) {
+                                            snackbarHostState.showSnackbar("Attendance marked successfully for ${emp.name}")
+                                            refreshData()
+                                        } else {
+                                            snackbarHostState.showSnackbar("Failed to mark attendance: ${response.code()} ${response.message()}")
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    snackbarHostState.showSnackbar("Error: ${e.localizedMessage ?: "Unknown error"}")
+                                    Log.e("OrgAttendanceScreen", "Failed to mark attendance", e)
+                                }
+                            }
+                        }
+                    )
                     Spacer(modifier = Modifier.height(18.dp))
                 }
             }
@@ -551,6 +613,35 @@ private fun getMonthFromDate(dateString: String): String {
     }
 }
 
+// Helper to build date string from day and month
+@SuppressLint("DefaultLocale")
+private fun buildDateString(day: String, monthYear: String): String {
+    if (monthYear == "All" || day == "All") return ""
+    return try {
+        val sdf = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+        val date = sdf.parse(monthYear) ?: return ""
+        val month = SimpleDateFormat("MM", Locale.getDefault()).format(date)
+        val year = SimpleDateFormat("yyyy", Locale.getDefault()).format(date)
+        String.format("%02d/%s/%s", day.toInt(), month, year)
+    } catch (e: Exception) {
+        ""
+    }
+}
+
+// Helper to get number of days in a month
+private fun getDaysInMonth(monthYear: String): Int {
+    if (monthYear == "All") return 31
+    return try {
+        val sdf = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+        val date = sdf.parse(monthYear) ?: return 31
+        val cal = Calendar.getInstance()
+        cal.time = date
+        cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+    } catch (e: Exception) {
+        31
+    }
+}
+
 @Preview(showBackground = true)
 @Composable
 fun OrgAttendanceScreenPreview() {
@@ -568,4 +659,100 @@ private fun scheduleOrgLogStatusWorker(context: Context) {
         ExistingPeriodicWorkPolicy.KEEP,
         logStatusWorkRequest
     )
+}
+
+// Card for marking attendance for all employees
+@Composable
+fun MarkAttendanceCard(name: String, phoneNumber: String, date: String, alreadyMarked: Boolean, markedStatus: String?, onMark: (String) -> Unit) {
+    var showDialog by remember { mutableStateOf<String?>(null) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFFFF3E0), RoundedCornerShape(18.dp)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Text(
+                text = name,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = Color.Black
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            if (alreadyMarked && markedStatus != null) {
+                Text(
+                    text = "Attendance already marked: ${statusText(markedStatus)}",
+                    fontSize = 13.sp,
+                    color = Color(0xFF757575),
+                    fontWeight = FontWeight.Normal
+                )
+            } else {
+                Text(
+                    text = "No attendance marked for this day.",
+                    fontSize = 13.sp,
+                    color = Color(0xFF757575),
+                    fontWeight = FontWeight.Normal
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Button(
+                    onClick = { showDialog = "P" },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                    enabled = !alreadyMarked
+                ) { Text("Present", color = Color.White) }
+                Button(
+                    onClick = { showDialog = "A" },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336)),
+                    enabled = !alreadyMarked
+                ) { Text("Absent", color = Color.White) }
+                Button(
+                    onClick = { showDialog = "H" },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800)),
+                    enabled = !alreadyMarked
+                ) { Text("Half Day", color = Color.White) }
+            }
+        }
+    }
+    if (showDialog != null) {
+        AlertDialog(
+            onDismissRequest = { showDialog = null },
+            title = { Text("Confirm Attendance") },
+            text = { Text("Mark $name as ${statusText(showDialog!!)} for $date?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onMark(showDialog!!)
+                    showDialog = null
+                }) { Text("Confirm") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = null }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+private fun statusText(status: String): String = when (status) {
+    "P" -> "Present"
+    "A" -> "Absent"
+    "H" -> "Half Day"
+    else -> status
+}
+
+// Add mark attendance API call
+suspend fun markAttendanceApiCall(phone: String, empPhone: String, date: String, status: String): retrofit2.Response<Unit> {
+    return withContext(Dispatchers.IO) {
+        val id = "${empPhone}_$date"
+        val body = mapOf(
+            "phone" to phone,
+            "id" to id,
+            "status" to status
+        )
+        val api = com.example.attendanceapp.api.NetworkModule.apiService
+        api.markAttendance(body)
+    }
 }
