@@ -1,5 +1,6 @@
 package com.example.attendanceapp.screens
 
+import android.annotation.SuppressLint
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -355,6 +356,7 @@ fun EmployeeAttendanceCardStyled(employee: EmployeeAttendance) {
     }
 }
 
+@SuppressLint("DefaultLocale")
 @Composable
 fun ShiftDetailsTable(shifts: Map<String, ShiftData>) {
     val sortedShifts = shifts.toList().sortedBy { it.first }
