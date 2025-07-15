@@ -117,5 +117,6 @@ data class LogStatusRequest(
     val ssid: String,
     val latitude: String,
     val longitude: String,
-    val timestamp: String
+    val timestamp: String,
+    val phone: String
 ) 
