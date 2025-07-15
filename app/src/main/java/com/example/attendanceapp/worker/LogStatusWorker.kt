@@ -51,7 +51,8 @@ class LogStatusWorker(
             val ssid = DeviceUtils.getCurrentSsid(applicationContext)
             val imei = DeviceUtils.getDeviceIMEI(applicationContext)
             val timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
-            val request = LogStatusRequest(imei, ssid, location.latitude.toString(), location.longitude.toString(), timestamp)
+            val phone = DataStoreManager.getEmployeePhone(applicationContext) ?: ""
+            val request = LogStatusRequest(imei, ssid, location.latitude.toString(), location.longitude.toString(), timestamp, phone)
             
             Log.d("LogStatusWorker", "Making API call with: $request")
             val response = NetworkModule.apiService.logStatus(request)
