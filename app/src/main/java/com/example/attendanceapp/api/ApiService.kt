@@ -12,4 +12,6 @@ interface ApiService {
 
     @POST("log_status")
     suspend fun logStatus(@Body request: LogStatusRequest): retrofit2.Response<Unit>
+    @POST("mark_attendance")
+    suspend fun markAttendance(@Body body: Map<String, String>): retrofit2.Response<Unit>
 } 
