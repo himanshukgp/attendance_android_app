@@ -86,6 +86,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
+import androidx.compose.runtime.mutableStateMapOf
 
 // Data classes for employee data
 data class EmployeeAttendance(
@@ -116,6 +117,7 @@ fun OrgAttendanceScreen(navController: NavController) {
     var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val tempMarkedAttendance = remember { mutableStateMapOf<String, String>() }
 
     // Filter states
     var selectedName by remember { mutableStateOf("All") }
@@ -210,6 +212,17 @@ fun OrgAttendanceScreen(navController: NavController) {
         }
     }
 
+    // After refreshData, clear tempMarkedAttendance for employees now present in employeesWithAttendance
+    LaunchedEffect(employeeData) {
+        val ids = employeeData.map { it.phoneNumber }.toSet()
+        tempMarkedAttendance.keys.filter { it in ids }.forEach { tempMarkedAttendance.remove(it) }
+    }
+
+    // Refresh data every time the screen is opened
+    LaunchedEffect(Unit) {
+        refreshData()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -291,33 +304,47 @@ fun OrgAttendanceScreen(navController: NavController) {
                     !(employeesWithAttendance.contains(emp.id) && emp.date == selectedDateString)
                 }
                 items(uniqueUnmarkedEmployees) { emp ->
-                    MarkAttendanceCard(
-                        name = emp.name,
-                        phoneNumber = emp.phoneNumber,
-                        date = selectedDateString,
-                        alreadyMarked = false,
-                        markedStatus = null,
-                        onMark = { status ->
-                            coroutineScope.launch {
-                                try {
-                                    val phone = DataStoreManager.getOrgPhone(context)
-                                    if (phone != null) {
-                                        val response = markAttendanceApiCall(phone, emp.phoneNumber, selectedDateString, status)
-                                        if (response.isSuccessful) {
-                                            snackbarHostState.showSnackbar("Attendance marked successfully for ${emp.name}")
-                                            refreshData()
-                                        } else {
-                                            snackbarHostState.showSnackbar("Failed to mark attendance: ${response.code()} ${response.message()}")
+                    val tempStatus = tempMarkedAttendance[emp.phoneNumber]
+                    if (tempStatus != null) {
+                        MarkAttendanceCard(
+                            name = emp.name,
+                            phoneNumber = emp.phoneNumber,
+                            date = selectedDateString,
+                            alreadyMarked = true,
+                            markedStatus = tempStatus,
+                            onMark = { }
+                        )
+                        Spacer(modifier = Modifier.height(18.dp))
+                    } else {
+                        MarkAttendanceCard(
+                            name = emp.name,
+                            phoneNumber = emp.phoneNumber,
+                            date = selectedDateString,
+                            alreadyMarked = false,
+                            markedStatus = null,
+                            onMark = { status ->
+                                coroutineScope.launch {
+                                    try {
+                                        val phone = DataStoreManager.getOrgPhone(context)
+                                        if (phone != null) {
+                                            val response = markAttendanceApiCall(phone, emp.phoneNumber, selectedDateString, status)
+                                            if (response.isSuccessful) {
+                                                tempMarkedAttendance[emp.phoneNumber] = status
+                                                snackbarHostState.showSnackbar("Attendance marked successfully for ${emp.name}")
+                                                refreshData()
+                                            } else {
+                                                snackbarHostState.showSnackbar("Failed to mark attendance: ${response.code()} ${response.message()}")
+                                            }
                                         }
+                                    } catch (e: Exception) {
+                                        snackbarHostState.showSnackbar("Error: ${e.localizedMessage ?: "Unknown error"}")
+                                        Log.e("OrgAttendanceScreen", "Failed to mark attendance", e)
                                     }
-                                } catch (e: Exception) {
-                                    snackbarHostState.showSnackbar("Error: ${e.localizedMessage ?: "Unknown error"}")
-                                    Log.e("OrgAttendanceScreen", "Failed to mark attendance", e)
                                 }
                             }
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(18.dp))
+                        )
+                        Spacer(modifier = Modifier.height(18.dp))
+                    }
                 }
             }
         }
