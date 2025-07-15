@@ -122,11 +122,11 @@ fun OrgSummaryScreen(navController: NavController) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            SummaryInfo(label = "Total Employees", value = 15)
+            SummaryInfo(label = "Total Employees", value = orgData?.employeeCount ?: 0)
             Spacer(modifier = Modifier.height(16.dp))
-            SummaryInfo(label = "Present", value = 8, color = Color.Green)
+            SummaryInfo(label = "Present", value = orgData?.employeePresent ?: 0, color = Color.Green)
             Spacer(modifier = Modifier.height(8.dp))
-            SummaryInfo(label = "Absent", value = 7, color = Color.Red)
+            SummaryInfo(label = "Absent", value = orgData?.employeeAbsent ?: 0, color = Color.Red)
         }
     }
 }
