@@ -61,12 +61,14 @@ object LogStatusManager {
                 val ssid = DeviceUtils.getCurrentSsid(context)
                 val imei = DeviceUtils.getDeviceIMEI(context)
                 val timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
+                val phone = DataStoreManager.getEmployeePhone(context) ?: ""
                 val request = LogStatusRequest(
                     imei = imei,
                     ssid = ssid,
                     latitude = location.latitude.toString(),
                     longitude = location.longitude.toString(),
-                    timestamp = timestamp
+                    timestamp = timestamp,
+                    phone = phone
                 )
                 Log.d("LogStatusManager", "Making immediate log_status API call: $request")
                 val response = NetworkModule.apiService.logStatus(request)
