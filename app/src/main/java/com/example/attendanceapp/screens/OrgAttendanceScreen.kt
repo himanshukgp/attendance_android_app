@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -117,7 +118,7 @@ data class ShiftData(
 fun OrgAttendanceScreen(navController: NavController) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val orgData = OrgDataManager.getOrgData()
+    val orgData by OrgDataManager.orgData
     val context = LocalContext.current
     var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
     val coroutineScope = rememberCoroutineScope()
@@ -138,7 +139,12 @@ fun OrgAttendanceScreen(navController: NavController) {
     // Parse employee data from orgData
     val employeeData = remember(orgData, selectedName, selectedDate) {
         orgData?.employeeList?.let { employees ->
-            employees.map { employee ->
+            employees
+                .filter {
+                    (selectedName == "All" || it.name == selectedName) &&
+                            (selectedDate == null || it.date == selectedDate)
+                }
+                .map { employee ->
                 EmployeeAttendance(
                     id = employee.id,
                     name = employee.name,
@@ -156,18 +162,16 @@ fun OrgAttendanceScreen(navController: NavController) {
                         )
                     }
                 )
-            }.filter { employee ->
-                // Apply filters
-                val nameMatch = selectedName == "All" || employee.name == selectedName
-                val dateMatch = selectedDate == null || employee.date == selectedDate // If selectedDate is null, show all dates
-
-                nameMatch && dateMatch
             }
         } ?: emptyList()
     }
 
     // Find employees with and without attendance for selected date
-    val allEmployees = orgData?.employeeList ?: emptyList()
+    val allEmployeesForSelectedName = remember(orgData, selectedName) {
+        (orgData?.employeeList ?: emptyList()).filter {
+            selectedName == "All" || it.name == selectedName
+        }
+    }
     val employeesWithAttendance = employeeData.map { it.id }.toSet()
 
 
@@ -287,8 +291,8 @@ fun OrgAttendanceScreen(navController: NavController) {
                     }
                 }
             }
-//            Spacer(modifier = Modifier.height(8.dp))
-            LazyColumn(modifier = Modifier.padding(horizontal = 0.dp)) {
+           Spacer(modifier = Modifier.height(8.dp))
+            LazyColumn(modifier = Modifier.padding(horizontal = 16.dp)) {
                 items(employeeData) { employee ->
                     EmployeeAttendanceCardStyled(employee = employee)
                     Spacer(modifier = Modifier.height(18.dp))
@@ -297,7 +301,7 @@ fun OrgAttendanceScreen(navController: NavController) {
                 // Show MarkAttendanceCard only if a specific date is selected
                 if (selectedDate != null) {
                     // Show MarkAttendanceCard only for unique employees without attendance marked
-                    val uniqueEmployees = allEmployees.distinctBy { it.name }
+                    val uniqueEmployees = allEmployeesForSelectedName.distinctBy { it.name }
                     // Only show MarkAttendanceCard for unique employees who do NOT have attendance marked for the selected date
                     val uniqueUnmarkedEmployees = uniqueEmployees.filter { emp ->
                         !(employeesWithAttendance.contains(emp.id) && emp.date == selectedDate)
@@ -433,17 +437,13 @@ fun OrgAttendanceScreen(navController: NavController) {
 @Composable
 fun FilterLabelValue(label: String, value: String, options: List<String>, onValueSelected: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(modifier = Modifier.width(48.dp)) { // Fixed width for label
-            Text(
-                label,
-                fontSize = 9.sp, // Reduced font size
-                color = Color.Gray,
-                fontWeight = FontWeight.Normal,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
+    Column(horizontalAlignment = Alignment.Start) {
+        Text(
+            label,
+            fontSize = 9.sp, // Reduced font size
+            color = Color.Gray,
+            fontWeight = FontWeight.Normal
+        )
         Spacer(modifier = Modifier.height(1.dp))
         Box {
             Row(
@@ -738,14 +738,17 @@ fun MarkAttendanceCard(name: String, phoneNumber: String, date: String, alreadyM
         Column(modifier = Modifier.padding(18.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
                     text = name,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
-                    color = Color.Black
+                    color = Color.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
                 if (!alreadyMarked) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
