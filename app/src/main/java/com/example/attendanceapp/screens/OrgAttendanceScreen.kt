@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +48,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -72,6 +75,7 @@ import com.example.attendanceapp.data.OrgDataManager
 import com.example.attendanceapp.worker.LogStatusWorker
 import java.util.concurrent.TimeUnit
 import android.util.Log
+import androidx.compose.foundation.layout.PaddingValues
 import com.example.attendanceapp.data.DataStoreManager
 import androidx.compose.runtime.rememberCoroutineScope
 import com.example.attendanceapp.api.NetworkModule
@@ -82,6 +86,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.Calendar
+import java.util.TimeZone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -121,16 +126,17 @@ fun OrgAttendanceScreen(navController: NavController) {
 
     // Filter states
     var selectedName by remember { mutableStateOf("All") }
-    // Default selectedMonth to current month and year
+
+    // Date picker states
+    var showDatePicker by remember { mutableStateOf(false) }
     val today = remember { Date() }
-    val currentMonthYear = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(today)
-    var selectedMonth by remember { mutableStateOf(currentMonthYear) }
-    // Default selectedDate to today's day as string
-    val defaultDay = SimpleDateFormat("d", Locale.getDefault()).format(today)
-    var selectedDate by remember { mutableStateOf(defaultDay) }
+    val defaultDateString = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(today)
+    var selectedDate by remember { mutableStateOf<String?>(defaultDateString) }
+    var selectAllDates by remember { mutableStateOf(false) }
+
 
     // Parse employee data from orgData
-    val employeeData = remember(orgData, selectedName, selectedMonth, selectedDate) {
+    val employeeData = remember(orgData, selectedName, selectedDate) {
         orgData?.employeeList?.let { employees ->
             employees.map { employee ->
                 EmployeeAttendance(
@@ -153,34 +159,21 @@ fun OrgAttendanceScreen(navController: NavController) {
             }.filter { employee ->
                 // Apply filters
                 val nameMatch = selectedName == "All" || employee.name == selectedName
-                val monthMatch = selectedMonth == "All" || isDateInMonth(employee.date, selectedMonth)
-                val dateMatch = selectedDate == "All" || employee.date == buildDateString(selectedDate, selectedMonth)
+                val dateMatch = selectedDate == null || employee.date == selectedDate // If selectedDate is null, show all dates
 
-                nameMatch && monthMatch && dateMatch
+                nameMatch && dateMatch
             }
         } ?: emptyList()
     }
 
     // Find employees with and without attendance for selected date
     val allEmployees = orgData?.employeeList ?: emptyList()
-    val selectedDateString = buildDateString(selectedDate, selectedMonth)
     val employeesWithAttendance = employeeData.map { it.id }.toSet()
 
-    // Get unique names, months, and dates for filters
+
+    // Get unique names for filters
     val uniqueNames = remember(orgData) {
         listOf("All") + (orgData?.employeeList?.map { it.name }?.distinct() ?: emptyList())
-    }
-
-    val uniqueMonths = remember(orgData) {
-        val months = (orgData?.employeeList?.map { getMonthFromDate(it.date) }?.distinct() ?: emptyList()).toMutableList()
-        if (!months.contains(currentMonthYear)) months.add(0, currentMonthYear)
-        listOf("All") + months
-    }
-
-    // Date filter: show 1..lastDayOfMonth for selectedMonth
-    val uniqueDates = remember(selectedMonth) {
-        val days = getDaysInMonth(selectedMonth)
-        listOf("All") + (1..days).map { it.toString() }
     }
 
     // Initialize toggle state from DataStore
@@ -254,12 +247,12 @@ fun OrgAttendanceScreen(navController: NavController) {
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            // Name filter at the top, centered
+            // Name and Date filters
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.Center,
+                    .padding(top = 4.dp, start = 16.dp, end = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 FilterLabelValue(
@@ -268,86 +261,161 @@ fun OrgAttendanceScreen(navController: NavController) {
                     options = uniqueNames,
                     onValueSelected = { selectedName = it }
                 )
+
+                // Date Picker Button
+                Button(
+                    onClick = { showDatePicker = true },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        if (selectAllDates || selectedDate == null) "All" else selectedDate ?: "All",
+                        fontSize = 11.sp // Reduced font size
+                    )
+                }
             }
-            // Month and Date filters below name, centered
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                FilterLabelValue(
-                    label = "Month",
-                    value = selectedMonth,
-                    options = uniqueMonths,
-                    onValueSelected = { selectedMonth = it }
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                FilterLabelValue(
-                    label = "Date",
-                    value = selectedDate,
-                    options = uniqueDates,
-                    onValueSelected = { selectedDate = it }
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
+//            Spacer(modifier = Modifier.height(8.dp))
             LazyColumn(modifier = Modifier.padding(horizontal = 0.dp)) {
                 items(employeeData) { employee ->
                     EmployeeAttendanceCardStyled(employee = employee)
                     Spacer(modifier = Modifier.height(18.dp))
                 }
-                // Show MarkAttendanceCard only for unique employees without attendance marked
-                val uniqueEmployees = allEmployees.distinctBy { it.name }
-                // Only show MarkAttendanceCard for unique employees who do NOT have attendance marked for the selected date
-                val uniqueUnmarkedEmployees = uniqueEmployees.filter { emp ->
-                    !(employeesWithAttendance.contains(emp.id) && emp.date == selectedDateString)
-                }
-                items(uniqueUnmarkedEmployees) { emp ->
-                    val tempStatus = tempMarkedAttendance[emp.phoneNumber]
-                    if (tempStatus != null) {
-                        MarkAttendanceCard(
-                            name = emp.name,
-                            phoneNumber = emp.phoneNumber,
-                            date = selectedDateString,
-                            alreadyMarked = true,
-                            markedStatus = tempStatus,
-                            onMark = { }
-                        )
-                        Spacer(modifier = Modifier.height(18.dp))
-                    } else {
-                        MarkAttendanceCard(
-                            name = emp.name,
-                            phoneNumber = emp.phoneNumber,
-                            date = selectedDateString,
-                            alreadyMarked = false,
-                            markedStatus = null,
-                            onMark = { status ->
-                                coroutineScope.launch {
-                                    try {
-                                        val phone = DataStoreManager.getOrgPhone(context)
-                                        if (phone != null) {
-                                            val response = markAttendanceApiCall(phone, emp.phoneNumber, selectedDateString, status)
-                                            if (response.isSuccessful) {
-                                                tempMarkedAttendance[emp.phoneNumber] = status
-                                                snackbarHostState.showSnackbar("Attendance marked successfully for ${emp.name}")
-                                                refreshData()
-                                            } else {
-                                                snackbarHostState.showSnackbar("Failed to mark attendance: ${response.code()} ${response.message()}")
+
+                // Show MarkAttendanceCard only if a specific date is selected
+                if (selectedDate != null) {
+                    // Show MarkAttendanceCard only for unique employees without attendance marked
+                    val uniqueEmployees = allEmployees.distinctBy { it.name }
+                    // Only show MarkAttendanceCard for unique employees who do NOT have attendance marked for the selected date
+                    val uniqueUnmarkedEmployees = uniqueEmployees.filter { emp ->
+                        !(employeesWithAttendance.contains(emp.id) && emp.date == selectedDate)
+                    }
+                    items(uniqueUnmarkedEmployees) { emp ->
+                        val tempStatus = tempMarkedAttendance[emp.phoneNumber]
+                        if (tempStatus != null) {
+                            MarkAttendanceCard(
+                                name = emp.name,
+                                phoneNumber = emp.phoneNumber,
+                                date = selectedDate!!,
+                                alreadyMarked = true,
+                                markedStatus = tempStatus,
+                                onMark = { }
+                            )
+                            Spacer(modifier = Modifier.height(18.dp))
+                        } else {
+                            MarkAttendanceCard(
+                                name = emp.name,
+                                phoneNumber = emp.phoneNumber,
+                                date = selectedDate!!,
+                                alreadyMarked = false,
+                                markedStatus = null,
+                                onMark = { status ->
+                                    coroutineScope.launch {
+                                        try {
+                                            val phone = DataStoreManager.getOrgPhone(context)
+                                            if (phone != null) {
+                                                val response = markAttendanceApiCall(
+                                                    phone,
+                                                    emp.phoneNumber,
+                                                    selectedDate!!,
+                                                    status
+                                                )
+                                                if (response.isSuccessful) {
+                                                    tempMarkedAttendance[emp.phoneNumber] = status
+                                                    snackbarHostState.showSnackbar("Attendance marked successfully for ${emp.name}")
+                                                    refreshData()
+                                                } else {
+                                                    snackbarHostState.showSnackbar("Failed to mark attendance: ${response.code()} ${response.message()}")
+                                                }
                                             }
+                                        } catch (e: Exception) {
+                                            snackbarHostState.showSnackbar("Error: ${e.localizedMessage ?: "Unknown error"}")
+                                            Log.e(
+                                                "OrgAttendanceScreen",
+                                                "Failed to mark attendance",
+                                                e
+                                            )
                                         }
-                                    } catch (e: Exception) {
-                                        snackbarHostState.showSnackbar("Error: ${e.localizedMessage ?: "Unknown error"}")
-                                        Log.e("OrgAttendanceScreen", "Failed to mark attendance", e)
                                     }
                                 }
-                            }
-                        )
-                        Spacer(modifier = Modifier.height(18.dp))
+                            )
+                            Spacer(modifier = Modifier.height(18.dp))
+                        }
                     }
                 }
             }
         }
+    }
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = if (selectedDate != null) {
+                try {
+                    SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).parse(selectedDate!!)?.time
+                } catch (e: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+        )
+        var tempSelectAllDates by remember { mutableStateOf(selectedDate == null) }
+
+        AlertDialog(
+            onDismissRequest = { showDatePicker = false },
+            title = { Text("Select Date") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    DatePicker(
+                        state = datePickerState,
+                        modifier = Modifier.padding(16.dp),
+                        showModeToggle = false,
+                        headline = null,
+                        title = null
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = tempSelectAllDates,
+                            onCheckedChange = { tempSelectAllDates = it }
+                        )
+                        Text(
+                            "All Dates",
+                            color = Color.Black,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(start = 2.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        selectAllDates = tempSelectAllDates
+                        if (tempSelectAllDates) {
+                            selectedDate = null
+                        } else {
+                            datePickerState.selectedDateMillis?.let { millis ->
+                                val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                                // DatePicker uses UTC millis. We need to format it correctly.
+                                val calendar = Calendar.getInstance() // Use local timezone for formatting
+                                calendar.timeInMillis =
+                                    millis + TimeZone.getDefault().getOffset(millis)
+                                selectedDate = sdf.format(calendar.time)
+                            } ?: run {
+                                // If no date selected, and "All Dates" is off, default to today
+                                if (selectedDate == null) {
+                                    selectedDate = defaultDateString
+                                }
+                            }
+                        }
+                        showDatePicker = false
+                    }
+                ) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 
@@ -355,7 +423,16 @@ fun OrgAttendanceScreen(navController: NavController) {
 fun FilterLabelValue(label: String, value: String, options: List<String>, onValueSelected: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Normal)
+        Box(modifier = Modifier.width(48.dp)) { // Fixed width for label
+            Text(
+                label,
+                fontSize = 9.sp, // Reduced font size
+                color = Color.Gray,
+                fontWeight = FontWeight.Normal,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Spacer(modifier = Modifier.height(1.dp))
         Box {
             Row(
@@ -366,10 +443,9 @@ fun FilterLabelValue(label: String, value: String, options: List<String>, onValu
                     text = value,
                     color = Color(0xFF1976D2),
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp, // Reduced font size
                     modifier = Modifier
                         .padding(horizontal = 2.dp)
-                        .then(if (expanded) Modifier else Modifier)
                         .background(Color.Transparent),
                     textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
                 )
@@ -615,57 +691,6 @@ fun TimelineBarStyled(shifts: Map<String, ShiftData>) {
                 )
             }
         }
-    }
-}
-
-// Helper functions
-private fun isDateInMonth(dateString: String, monthString: String): Boolean {
-    return try {
-        val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-        val date = sdf.parse(dateString) ?: return false
-        val monthYear = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(date)
-        monthYear == monthString
-    } catch (e: Exception) {
-        false
-    }
-}
-
-private fun getMonthFromDate(dateString: String): String {
-    return try {
-        val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-        val date = sdf.parse(dateString) ?: Date(0)
-        SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(date)
-    } catch (e: Exception) {
-        "Unknown"
-    }
-}
-
-// Helper to build date string from day and month
-@SuppressLint("DefaultLocale")
-private fun buildDateString(day: String, monthYear: String): String {
-    if (monthYear == "All" || day == "All") return ""
-    return try {
-        val sdf = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
-        val date = sdf.parse(monthYear) ?: return ""
-        val month = SimpleDateFormat("MM", Locale.getDefault()).format(date)
-        val year = SimpleDateFormat("yyyy", Locale.getDefault()).format(date)
-        String.format("%02d/%s/%s", day.toInt(), month, year)
-    } catch (e: Exception) {
-        ""
-    }
-}
-
-// Helper to get number of days in a month
-private fun getDaysInMonth(monthYear: String): Int {
-    if (monthYear == "All") return 31
-    return try {
-        val sdf = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
-        val date = sdf.parse(monthYear) ?: return 31
-        val cal = Calendar.getInstance()
-        cal.time = date
-        cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-    } catch (e: Exception) {
-        31
     }
 }
 
