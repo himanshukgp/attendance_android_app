@@ -262,18 +262,29 @@ fun OrgAttendanceScreen(navController: NavController) {
                     onValueSelected = { selectedName = it }
                 )
 
-                // Date Picker Button
-                Button(
-                    onClick = { showDatePicker = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date", modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
+                // Date filter with label
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        if (selectAllDates || selectedDate == null) "All" else selectedDate ?: "All",
-                        fontSize = 11.sp // Reduced font size
+                        text = "Date",
+                        fontSize = 9.sp, // Match Name label
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Normal,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.width(48.dp)
                     )
+                    Spacer(modifier = Modifier.height(1.dp))
+                    Button(
+                        onClick = { showDatePicker = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            if (selectAllDates || selectedDate == null) "All" else selectedDate ?: "All",
+                            fontSize = 11.sp // Reduced font size
+                        )
+                    }
                 }
             }
 //            Spacer(modifier = Modifier.height(8.dp))
@@ -725,12 +736,27 @@ fun MarkAttendanceCard(name: String, phoneNumber: String, date: String, alreadyM
         shape = RoundedCornerShape(18.dp)
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
-            Text(
-                text = name,
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                color = Color.Black
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color.Black
+                )
+                if (!alreadyMarked) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        StatusCircle(letter = "P", color = Color(0xFF4CAF50)) { showDialog = "P" }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        StatusCircle(letter = "A", color = Color(0xFFF44336)) { showDialog = "A" }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        StatusCircle(letter = "H", color = Color(0xFFFF9800)) { showDialog = "H" }
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             if (alreadyMarked && markedStatus != null) {
                 Text(
@@ -739,34 +765,13 @@ fun MarkAttendanceCard(name: String, phoneNumber: String, date: String, alreadyM
                     color = Color(0xFF757575),
                     fontWeight = FontWeight.Normal
                 )
-            } else {
+            } else if (!alreadyMarked) {
                 Text(
                     text = "No attendance marked for this day.",
                     fontSize = 13.sp,
                     color = Color(0xFF757575),
                     fontWeight = FontWeight.Normal
                 )
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            Row(
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Button(
-                    onClick = { showDialog = "P" },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
-                    enabled = !alreadyMarked
-                ) { Text("Present", color = Color.White) }
-                Button(
-                    onClick = { showDialog = "A" },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336)),
-                    enabled = !alreadyMarked
-                ) { Text("Absent", color = Color.White) }
-                Button(
-                    onClick = { showDialog = "H" },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800)),
-                    enabled = !alreadyMarked
-                ) { Text("Half Day", color = Color.White) }
             }
         }
     }
@@ -784,6 +789,25 @@ fun MarkAttendanceCard(name: String, phoneNumber: String, date: String, alreadyM
             dismissButton = {
                 TextButton(onClick = { showDialog = null }) { Text("Cancel") }
             }
+        )
+    }
+}
+
+@Composable
+private fun StatusCircle(letter: String, color: Color, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(color)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = letter,
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold
         )
     }
 }
