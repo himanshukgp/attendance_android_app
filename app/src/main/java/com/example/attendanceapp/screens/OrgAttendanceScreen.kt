@@ -99,6 +99,8 @@ data class ShiftData(
     val to: Double
 )
 
+data class EmployeeMaster(val name: String, val phoneNumber: String)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrgAttendanceScreen(navController: NavController) {
