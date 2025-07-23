@@ -849,7 +849,7 @@ fun OrgAttendanceScreenPreview() {
 // Card for marking attendance for all employees
 @Composable
 fun MarkAttendanceCard(
-    employeeId: String, // Add this parameter
+    employeeId: String,
     name: String,
     phoneNumber: String,
     date: String,
@@ -857,6 +857,8 @@ fun MarkAttendanceCard(
     markedStatus: String?,
     onMark: (String) -> Unit
 ) {
+    val disabledColor = Color(0xFFBDBDBD) // Material design disabled gray
+
     var showDialog by remember { mutableStateOf<String?>(null) }
     Card(
         modifier = Modifier
@@ -880,14 +882,32 @@ fun MarkAttendanceCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+
+                // Attendance not marked: show disabled circles
                 if (!alreadyMarked) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusCircle(letter = "P", color = Color(0xFF4CAF50)) { showDialog = "P" }
+                        StatusCircle(letter = "P", color = disabledColor, { showDialog = "P" })
                         Spacer(modifier = Modifier.width(8.dp))
-                        StatusCircle(letter = "A", color = Color(0xFFF44336)) { showDialog = "A" }
+                        StatusCircle(letter = "A", color = disabledColor, { showDialog = "A" })
                         Spacer(modifier = Modifier.width(8.dp))
-                        StatusCircle(letter = "H", color = Color(0xFFFF9800)) { showDialog = "H" }
+                        StatusCircle(letter = "H", color = disabledColor, { showDialog = "H" })
                     }
+                }
+
+                // Attendance marked: show colored status
+                if (alreadyMarked && markedStatus != null) {
+                    // Color logic for marked statuses
+                    val (bg, _) = when (markedStatus) {
+                        "P" -> Color(0xFF4CAF50) to Color.White
+                        "A" -> Color(0xFFF44336) to Color.White
+                        "H" -> Color(0xFFFF9800) to Color.White
+                        else -> Color.Gray to Color.White
+                    }
+                    StatusCircle(
+                        letter = markedStatus,
+                        color = bg,
+                        onClick = {} // disabled
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
@@ -908,7 +928,7 @@ fun MarkAttendanceCard(
             }
         }
     }
-    if (showDialog != null) {
+    if (!alreadyMarked && showDialog != null) {
         AlertDialog(
             onDismissRequest = { showDialog = null },
             title = { Text("Confirm Attendance") },
