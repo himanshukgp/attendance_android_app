@@ -104,72 +104,65 @@ data class EmployeeMaster(val name: String, val phoneNumber: String)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrgAttendanceScreen(navController: NavController) {
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
     val orgData by OrgDataManager.orgData
     val context = LocalContext.current
-    var isLoggingEnabled by remember { mutableStateOf(DataStoreManager.getWorkerToggleState(context)) }
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val tempMarkedAttendance = remember { mutableStateMapOf<String, String>() }
 
     // Filter states
     var selectedName by remember { mutableStateOf("All") }
-
-    // *** REPLACE old date picker states ***
-    //var showDatePicker by remember { mutableStateOf(false) }
     var showCalendar by remember { mutableStateOf(false) }
+
     val today = remember { Date() }
     val defaultDateString = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(today)
     var selectedDate by remember { mutableStateOf<String?>(defaultDateString) }
-    // ----------------------------------------------------
 
-    // Your existing data filtering logic remains unchanged...
-// Updated data filtering logic to handle null date (All dates)
-    val employeeData = remember(orgData, selectedName, selectedDate) {
-        orgData?.employeeList?.let { employees ->
-            employees
-                .filter {
-                    (selectedName == "All" || it.name == selectedName) &&
-                            (selectedDate == null || it.date == selectedDate) // Handle null for "All dates"
-                }
-                .map { employee ->
-                    EmployeeAttendance(
-                        id = employee.id,
-                        name = employee.name,
-                        phoneNumber = employee.phoneNumber,
-                        date = employee.date,
-                        loginTime = employee.inTime,
-                        totalTime = employee.hours,
-                        marked = employee.marked,
-                        shifts = employee.shifts.mapValues { (_, shift) ->
-                            ShiftData(
-                                inTime = shift.inn,
-                                outTime = shift.out,
-                                ti = if (shift.ti is String && shift.ti == "-") 0.0 else (shift.ti as? Double ?: 0.0),
-                                to = if (shift.to is String && shift.to == "-") 0.0 else (shift.to as? Double ?: 0.0)
-                            )
-                        }
-                    )
-                }
+    // Build master employee list from all data (distinct by phoneNumber)
+    val allEmployeesMasterList = remember(orgData) {
+        orgData?.employeeList?.distinctBy { it.phoneNumber }?.map {
+            EmployeeMaster(name = it.name, phoneNumber = it.phoneNumber)
         } ?: emptyList()
     }
 
-    val allEmployeesForSelectedName = remember(orgData, selectedName) {
-        (orgData?.employeeList ?: emptyList()).filter {
-            selectedName == "All" || it.name == selectedName
+    // Filter master list by selected employee name if needed
+    val filteredEmployees = remember(allEmployeesMasterList, selectedName) {
+        if (selectedName == "All") allEmployeesMasterList
+        else allEmployeesMasterList.filter { it.name == selectedName }
+    }
+
+    // Attendance records for selected date
+    val attendanceForDate = remember(orgData, selectedDate) {
+        if (selectedDate == null) emptyList()
+        else orgData?.employeeList?.filter { it.date == selectedDate } ?: emptyList()
+    }
+    // Map for quick lookup by phone + date id (id is phone_date)
+    val attendanceIdSet = remember(attendanceForDate) { attendanceForDate.map { it.id }.toSet() }
+
+    // Filtering employeeData for displaying already marked attendance cards (filtered & dated)
+    val employeeData = remember(attendanceForDate) {
+        attendanceForDate.map { employee ->
+            EmployeeAttendance(
+                id = employee.id,
+                name = employee.name,
+                phoneNumber = employee.phoneNumber,
+                date = employee.date,
+                loginTime = employee.inTime,
+                totalTime = employee.hours,
+                marked = employee.marked,
+                shifts = employee.shifts.mapValues { (_, shift) ->
+                    ShiftData(
+                        inTime = shift.inn,
+                        outTime = shift.out,
+                        ti = if (shift.ti is String && shift.ti == "-") 0.0 else (shift.ti as? Double ?: 0.0),
+                        to = if (shift.to is String && shift.to == "-") 0.0 else (shift.to as? Double ?: 0.0)
+                    )
+                }
+            )
         }
     }
-    val employeesWithAttendance = employeeData.map { it.id }.toSet()
 
-    val uniqueNames = remember(orgData) {
-        listOf("All") + (orgData?.employeeList?.map { it.name }?.distinct() ?: emptyList())
-    }
-
-    LaunchedEffect(Unit) {
-        isLoggingEnabled = DataStoreManager.getWorkerToggleState(context)
-    }
-
+    // Refresh data method to call your backend
     val refreshData = {
         coroutineScope.launch {
             try {
@@ -184,32 +177,28 @@ fun OrgAttendanceScreen(navController: NavController) {
                     DataStoreManager.saveOrg(context, orgJson)
                 }
             } catch (_: Exception) {
-                // handle errors as needed or log
+                // handle errors if needed
             }
         }
     }
 
-    LaunchedEffect(employeeData) {
-        // Cleanup temp attendance markings
-        val ids = employeeData.map { it.phoneNumber }.toSet()
-        tempMarkedAttendance.keys.filter { it in ids }.forEach { tempMarkedAttendance.remove(it) }
-    }
-
-    LaunchedEffect(Unit) {
-        refreshData()
-    }
+    LaunchedEffect(Unit) { refreshData() }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Attendance", fontWeight = FontWeight.Bold, fontSize = 22.sp) },
                 actions = {
-                    Text(if (isLoggingEnabled) "ON" else "OFF", color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (DataStoreManager.getWorkerToggleState(context)) "ON" else "OFF",
+                        color = Color.Gray,
+                        modifier = Modifier.align(Alignment.CenterVertically)
+                    )
+                    Spacer(Modifier.width(8.dp))
                     Switch(
-                        checked = isLoggingEnabled,
+                        checked = DataStoreManager.getWorkerToggleState(context),
                         onCheckedChange = {
-                            isLoggingEnabled = it
+                            DataStoreManager.getWorkerToggleState(context)
                             com.example.attendanceapp.data.LogStatusManager.toggleLogging(context, it)
                         },
                         modifier = Modifier.height(20.dp)
@@ -220,79 +209,54 @@ fun OrgAttendanceScreen(navController: NavController) {
                 }
             )
         },
-        bottomBar = {
-            OrgBottomBar(navController, currentRoute)
-        },
+        bottomBar = { OrgBottomBar(navController, navController.currentBackStackEntryAsState().value?.destination?.route) },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
+            modifier = Modifier.padding(innerPadding).fillMaxSize()
         ) {
-            // Name and Date filters
+            // Filters Row
             Row(
-                modifier = Modifier
+                Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp, start = 16.dp, end = 16.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 FilterLabelValue(
                     label = "Name",
                     value = selectedName,
-                    options = uniqueNames,
+                    options = listOf("All") + allEmployeesMasterList.map { it.name }.distinct(),
                     onValueSelected = { selectedName = it }
                 )
-
-                // Date filter with label and button to show custom calendar
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Date",
-                        fontSize = 9.sp,
-                        color = Color.Gray,
-                        fontWeight = FontWeight.Normal,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.width(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(1.dp))
-                    Button(
-                        onClick = { showCalendar = true },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = selectedDate ?: "All", // Show "All" when selectedDate is null
-                            fontSize = 11.sp
-                        )
-                    }
+                Button(
+                    onClick = { showCalendar = true },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date", modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(text = selectedDate ?: "All", fontSize = 11.sp)
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
 
-            LazyColumn(modifier = Modifier.padding(horizontal = 16.dp)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
+            ) {
+                // Show attendance cards already marked
                 items(employeeData) { employee ->
                     EmployeeAttendanceCardStyled(employee = employee)
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(Modifier.height(18.dp))
                 }
 
+                // Show MarkAttendanceCard for employees without attendance on the selected date
                 if (selectedDate != null) {
-// Get all employees uniquely by their phone number (master list)
-                    val allEmployeesByPhone = (orgData?.employeeList ?: emptyList()).distinctBy { it.phoneNumber }
-
-                    // Get IDs (phone_date) of employees that already have attendance for selectedDate
-                    val markedIdsSet = (orgData?.employeeList ?: emptyList())
-                        .filter { it.date == selectedDate }
-                        .map { it.id }
-                        .toSet()
-
-                    // Filter to those who do NOT have attendance on selectedDate
-                    val unmarkedEmployees = allEmployeesByPhone.filter { emp ->
-                        val idForSelectedDate = "${emp.phoneNumber}_$selectedDate"
-                        idForSelectedDate !in markedIdsSet
+                    val unmarkedEmployees = filteredEmployees.filter { emp ->
+                        val idForDate = "${emp.phoneNumber}_$selectedDate"
+                        idForDate !in attendanceIdSet
                     }
+
                     items(unmarkedEmployees) { emp ->
                         val markId = "${emp.phoneNumber}_$selectedDate"
                         val tempStatus = tempMarkedAttendance[markId]
@@ -309,17 +273,17 @@ fun OrgAttendanceScreen(navController: NavController) {
                                         val phone = DataStoreManager.getOrgPhone(context)
                                         if (phone != null) {
                                             val response = markAttendanceApiCall(
-                                                phone,
-                                                markId,            // Pass phone_date as id
-                                                selectedDate!!,
-                                                status
+                                                phone = phone,
+                                                employeeId = markId,
+                                                date = selectedDate!!,
+                                                status = status
                                             )
                                             if (response.isSuccessful) {
                                                 tempMarkedAttendance[markId] = status
                                                 snackbarHostState.showSnackbar("Marked attendance for ${emp.name}")
                                                 refreshData()
                                             } else {
-                                                snackbarHostState.showSnackbar("Failed marking attendance")
+                                                snackbarHostState.showSnackbar("Failed to mark attendance")
                                             }
                                         }
                                     } catch (e: Exception) {
@@ -328,14 +292,13 @@ fun OrgAttendanceScreen(navController: NavController) {
                                 }
                             }
                         )
-                        Spacer(modifier = Modifier.height(18.dp))
+                        Spacer(Modifier.height(18.dp))
                     }
                 }
-
-
-                }
-
             }
+        }
+
+        // Show calendar when toggled
         if (showCalendar) {
             CalendarView(
                 selectedDate = selectedDate,
@@ -346,8 +309,8 @@ fun OrgAttendanceScreen(navController: NavController) {
                 onDismiss = { showCalendar = false }
             )
         }
-        }
     }
+}
 
 // -------- Inline WEEK-VIEW CALENDAR COMPOSABLE --------
 @Composable
