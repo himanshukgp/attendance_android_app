@@ -65,7 +65,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.mutableIntStateOf
 import com.example.attendanceapp.data.DataStoreManager
 import androidx.compose.runtime.rememberCoroutineScope
 import com.example.attendanceapp.api.OrgLoginRequest
@@ -79,7 +78,6 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateMapOf
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.time.DayOfWeek
 
 
 // Data classes for employee data
@@ -279,74 +277,75 @@ fun OrgAttendanceScreen(navController: NavController) {
                 }
 
                 if (selectedDate != null) {
-                    val uniqueEmployees = allEmployeesForSelectedName.distinctBy { it.name }
-                    val uniqueUnmarkedEmployees = uniqueEmployees.filter { emp ->
-                        !(employeesWithAttendance.contains(emp.id) && emp.date == selectedDate)
+// Get all employees uniquely by their phone number (master list)
+                    val allEmployeesByPhone = (orgData?.employeeList ?: emptyList()).distinctBy { it.phoneNumber }
+
+                    // Get IDs (phone_date) of employees that already have attendance for selectedDate
+                    val markedIdsSet = (orgData?.employeeList ?: emptyList())
+                        .filter { it.date == selectedDate }
+                        .map { it.id }
+                        .toSet()
+
+                    // Filter to those who do NOT have attendance on selectedDate
+                    val unmarkedEmployees = allEmployeesByPhone.filter { emp ->
+                        val idForSelectedDate = "${emp.phoneNumber}_$selectedDate"
+                        idForSelectedDate !in markedIdsSet
                     }
-                    items(uniqueUnmarkedEmployees) { emp ->
-                        val tempStatus = tempMarkedAttendance[emp.phoneNumber]
-                        if (tempStatus != null) {
-                            MarkAttendanceCard(
-                                name = emp.name,
-                                phoneNumber = emp.phoneNumber,
-                                date = selectedDate!!,
-                                alreadyMarked = true,
-                                markedStatus = tempStatus,
-                                onMark = {}
-                            )
-                            Spacer(modifier = Modifier.height(18.dp))
-                        } else {
-                            MarkAttendanceCard(
-                                name = emp.name,
-                                phoneNumber = emp.phoneNumber,
-                                date = selectedDate!!,
-                                alreadyMarked = false,
-                                markedStatus = null,
-                                onMark = { status ->
-                                    coroutineScope.launch {
-                                        try {
-                                            val phone = DataStoreManager.getOrgPhone(context)
-                                            if (phone != null) {
-                                                val response = markAttendanceApiCall(
-                                                    phone,
-                                                    emp.phoneNumber,
-                                                    selectedDate!!,
-                                                    status
-                                                )
-                                                if (response.isSuccessful) {
-                                                    tempMarkedAttendance[emp.phoneNumber] = status
-                                                    snackbarHostState.showSnackbar("Attendance marked successfully for ${emp.name}")
-                                                    refreshData()
-                                                } else {
-                                                    snackbarHostState.showSnackbar("Failed to mark attendance: ${response.code()} ${response.message()}")
-                                                }
+                    items(unmarkedEmployees) { emp ->
+                        val markId = "${emp.phoneNumber}_$selectedDate"
+                        val tempStatus = tempMarkedAttendance[markId]
+                        MarkAttendanceCard(
+                            employeeId = markId,
+                            name = emp.name,
+                            phoneNumber = emp.phoneNumber,
+                            date = selectedDate!!,
+                            alreadyMarked = tempStatus != null,
+                            markedStatus = tempStatus,
+                            onMark = { status ->
+                                coroutineScope.launch {
+                                    try {
+                                        val phone = DataStoreManager.getOrgPhone(context)
+                                        if (phone != null) {
+                                            val response = markAttendanceApiCall(
+                                                phone,
+                                                markId,            // Pass phone_date as id
+                                                selectedDate!!,
+                                                status
+                                            )
+                                            if (response.isSuccessful) {
+                                                tempMarkedAttendance[markId] = status
+                                                snackbarHostState.showSnackbar("Marked attendance for ${emp.name}")
+                                                refreshData()
+                                            } else {
+                                                snackbarHostState.showSnackbar("Failed marking attendance")
                                             }
-                                        } catch (e: Exception) {
-                                            snackbarHostState.showSnackbar("Error: ${e.localizedMessage ?: "Unknown error"}")
                                         }
+                                    } catch (e: Exception) {
+                                        snackbarHostState.showSnackbar("Error: ${e.localizedMessage ?: "Unknown error"}")
                                     }
                                 }
-                            )
-                            Spacer(modifier = Modifier.height(18.dp))
-                        }
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(18.dp))
                     }
                 }
+
+
+                }
+
             }
+        if (showCalendar) {
+            CalendarView(
+                selectedDate = selectedDate,
+                onDateSelected = { date ->
+                    selectedDate = date
+                    showCalendar = false
+                },
+                onDismiss = { showCalendar = false }
+            )
+        }
         }
     }
-
-    // Custom Compose-native calendar pop-up
-    if (showCalendar) {
-        CalendarView(
-            selectedDate = selectedDate,
-            onDateSelected = { date ->
-                selectedDate = date // This can now be null for "All dates"
-                showCalendar = false
-            },
-            onDismiss = { showCalendar = false }
-        )
-    }
-}
 
 // -------- Inline WEEK-VIEW CALENDAR COMPOSABLE --------
 @Composable
@@ -884,7 +883,15 @@ fun OrgAttendanceScreenPreview() {
 
 // Card for marking attendance for all employees
 @Composable
-fun MarkAttendanceCard(name: String, phoneNumber: String, date: String, alreadyMarked: Boolean, markedStatus: String?, onMark: (String) -> Unit) {
+fun MarkAttendanceCard(
+    employeeId: String, // Add this parameter
+    name: String,
+    phoneNumber: String,
+    date: String,
+    alreadyMarked: Boolean,
+    markedStatus: String?,
+    onMark: (String) -> Unit
+) {
     var showDialog by remember { mutableStateOf<String?>(null) }
     Card(
         modifier = Modifier
@@ -953,7 +960,6 @@ fun MarkAttendanceCard(name: String, phoneNumber: String, date: String, alreadyM
         )
     }
 }
-
 @Composable
 private fun StatusCircle(letter: String, color: Color, onClick: () -> Unit) {
     Box(
@@ -981,12 +987,17 @@ private fun statusText(status: String): String = when (status) {
 }
 
 // Add mark attendance API call
-suspend fun markAttendanceApiCall(phone: String, empPhone: String, date: String, status: String): retrofit2.Response<Unit> {
+suspend fun markAttendanceApiCall(
+    phone: String,
+    employeeId: String, // Use actual employee ID instead of generating one
+    date: String,
+    status: String
+): retrofit2.Response<Unit> {
     return withContext(Dispatchers.IO) {
-        val id = "${empPhone}_$date"
         val body = mapOf(
             "phone" to phone,
-            "id" to id,
+            "id" to employeeId, // Use the actual employee ID
+            "date" to date,     // Add date as separate field
             "status" to status
         )
         val api = com.example.attendanceapp.api.NetworkModule.apiService
