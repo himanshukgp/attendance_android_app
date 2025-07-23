@@ -58,7 +58,7 @@ fun TimelineBar(data: List<Pair<Color, Float>>, height: Dp) {
 @Composable
 fun OrgBottomBar(navController: NavController, currentRoute: String?) {
     NavigationBar(
-        modifier = Modifier.height(48.dp)
+        modifier = Modifier.height(80.dp)
     ) {
         NavigationBarItem(
             selected = currentRoute == "orgDashboard",
