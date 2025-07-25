@@ -858,8 +858,8 @@ fun MarkAttendanceCard(
     onMark: (String) -> Unit
 ) {
     val disabledColor = Color(0xFFBDBDBD) // Material design disabled gray
-
     var showDialog by remember { mutableStateOf<String?>(null) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -883,42 +883,47 @@ fun MarkAttendanceCard(
                     modifier = Modifier.weight(1f)
                 )
 
-                // Attendance not marked: show disabled circles
-                if (!alreadyMarked) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusCircle(letter = "P", color = disabledColor, { showDialog = "P" })
-                        Spacer(modifier = Modifier.width(8.dp))
-                        StatusCircle(letter = "A", color = disabledColor, { showDialog = "A" })
-                        Spacer(modifier = Modifier.width(8.dp))
-                        StatusCircle(letter = "H", color = disabledColor, { showDialog = "H" })
-                    }
-                }
-
-                // Attendance marked: show colored status
-                if (alreadyMarked && markedStatus != null) {
-                    // Color logic for marked statuses
-                    val (bg, _) = when (markedStatus) {
-                        "P" -> Color(0xFF4CAF50) to Color.White
-                        "A" -> Color(0xFFF44336) to Color.White
-                        "H" -> Color(0xFFFF9800) to Color.White
-                        else -> Color.Gray to Color.White
-                    }
+                // Always show all three circles
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Present circle
                     StatusCircle(
-                        letter = markedStatus,
-                        color = bg,
-                        onClick = {} // disabled
+                        letter = "P",
+                        color = if (alreadyMarked && markedStatus == "P")
+                            Color(0xFF4CAF50) else disabledColor,
+                        onClick = { showDialog = "P" }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Absent circle
+                    StatusCircle(
+                        letter = "A",
+                        color = if (alreadyMarked && markedStatus == "A")
+                            Color(0xFFF44336) else disabledColor,
+                        onClick = { showDialog = "A" }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Holiday circle
+                    StatusCircle(
+                        letter = "H",
+                        color = if (alreadyMarked && markedStatus == "H")
+                            Color(0xFFFF9800) else disabledColor,
+                        onClick = { showDialog = "H" }
                     )
                 }
             }
+
             Spacer(modifier = Modifier.height(8.dp))
+
+            // Status text
             if (alreadyMarked && markedStatus != null) {
                 Text(
-                    text = "Attendance already marked: ${statusText(markedStatus)}",
+                    text = "Attendance marked: ${statusText(markedStatus)} (tap to change)",
                     fontSize = 13.sp,
                     color = Color(0xFF757575),
                     fontWeight = FontWeight.Normal
                 )
-            } else if (!alreadyMarked) {
+            } else {
                 Text(
                     text = "No attendance marked for this day.",
                     fontSize = 13.sp,
@@ -928,48 +933,70 @@ fun MarkAttendanceCard(
             }
         }
     }
-    if (!alreadyMarked && showDialog != null) {
+
+    // Confirmation dialog
+    showDialog?.let { status ->
         AlertDialog(
             onDismissRequest = { showDialog = null },
             title = { Text("Confirm Attendance") },
-            text = { Text("Mark $name as ${statusText(showDialog!!)} for $date?") },
+            text = {
+                Text(
+                    if (alreadyMarked)
+                        "Change $name's attendance to ${statusText(status)} for $date?"
+                    else
+                        "Mark $name as ${statusText(status)} for $date?"
+                )
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    onMark(showDialog!!)
-                    showDialog = null
-                }) { Text("Confirm") }
+                TextButton(
+                    onClick = {
+                        onMark(status)
+                        showDialog = null
+                    }
+                ) {
+                    Text("Confirm")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showDialog = null }) { Text("Cancel") }
+                TextButton(onClick = { showDialog = null }) {
+                    Text("Cancel")
+                }
             }
         )
     }
 }
+
 @Composable
-private fun StatusCircle(letter: String, color: Color, onClick: () -> Unit) {
+fun StatusCircle(
+    letter: String,
+    color: Color,
+    onClick: () -> Unit
+) {
     Box(
         modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(color)
+            .size(36.dp)
+            .background(color, CircleShape)
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = letter,
             color = Color.White,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp
         )
     }
 }
 
-private fun statusText(status: String): String = when (status) {
-    "P" -> "Present"
-    "A" -> "Absent"
-    "H" -> "Half Day"
-    else -> status
+fun statusText(status: String): String {
+    return when (status) {
+        "P" -> "Present"
+        "A" -> "Absent"
+        "H" -> "Halfday"
+        else -> "Unknown"
+    }
 }
+
 
 // Add mark attendance API call
 suspend fun markAttendanceApiCall(
