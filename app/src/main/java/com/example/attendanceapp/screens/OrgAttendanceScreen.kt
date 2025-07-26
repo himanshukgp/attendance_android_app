@@ -103,20 +103,34 @@ data class EmployeeMaster(val name: String, val phoneNumber: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrgAttendanceScreen(navController: NavController) {
+fun OrgAttendanceScreen(
+    navController: NavController,
+    initialDate: String? = null,
+    initialName: String? = null
+) {
     val orgData by OrgDataManager.orgData
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val tempMarkedAttendance = remember { mutableStateMapOf<String, String>() }
 
-    // Filter states
-    var selectedName by remember { mutableStateOf("All") }
+    // Filter states - initialize with passed parameters
+    var selectedName by remember { mutableStateOf(initialName ?: "All") }
     var showCalendar by remember { mutableStateOf(false) }
 
     val today = remember { Date() }
     val defaultDateString = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(today)
-    var selectedDate by remember { mutableStateOf<String?>(defaultDateString) }
+    var selectedDate by remember { mutableStateOf<String?>(initialDate ?: defaultDateString) }
+
+    // Effect to handle parameter changes (useful for navigation back/forth)
+    LaunchedEffect(initialDate, initialName) {
+        if (initialDate != null) {
+            selectedDate = initialDate
+        }
+        if (initialName != null) {
+            selectedName = initialName
+        }
+    }
 
     // Build master employee list from all data (distinct by phoneNumber)
     val allEmployeesMasterList = remember(orgData) {
@@ -140,8 +154,23 @@ fun OrgAttendanceScreen(navController: NavController) {
     val attendanceIdSet = remember(attendanceForDate) { attendanceForDate.map { it.id }.toSet() }
 
     // Filtering employeeData for displaying already marked attendance cards (filtered & dated)
-    val employeeData = remember(attendanceForDate) {
-        attendanceForDate.map { employee ->
+    val employeeData = remember(attendanceForDate, selectedName) {
+        val filteredData = if (selectedName == "All") {
+            attendanceForDate
+        } else {
+            attendanceForDate.filter { employee ->
+                try {
+                    val nameField = employee.javaClass.getDeclaredField("name")
+                    nameField.isAccessible = true
+                    val name = nameField.get(employee) as? String ?: ""
+                    name.equals(selectedName, ignoreCase = true)
+                } catch (e: Exception) {
+                    false
+                }
+            }
+        }
+
+        filteredData.map { employee ->
             EmployeeAttendance(
                 id = employee.id,
                 name = employee.name,
@@ -187,34 +216,93 @@ fun OrgAttendanceScreen(navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Attendance", fontWeight = FontWeight.Bold, fontSize = 22.sp) },
+                title = {
+                    Text(
+                        "Attendance",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp
+                    )
+                },
                 actions = {
                     Text(
                         text = if (DataStoreManager.getWorkerToggleState(context)) "ON" else "OFF",
                         color = Color.Gray,
-                        modifier = Modifier.align(Alignment.CenterVertically)
+                        modifier = Modifier.padding(end = 8.dp)
                     )
-                    Spacer(Modifier.width(8.dp))
                     Switch(
                         checked = DataStoreManager.getWorkerToggleState(context),
                         onCheckedChange = {
-                            DataStoreManager.getWorkerToggleState(context)
                             com.example.attendanceapp.data.LogStatusManager.toggleLogging(context, it)
                         },
                         modifier = Modifier.height(20.dp)
                     )
+                    Spacer(Modifier.width(8.dp))
                     IconButton(onClick = { refreshData() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 }
             )
         },
-        bottomBar = { OrgBottomBar(navController, navController.currentBackStackEntryAsState().value?.destination?.route) },
+        bottomBar = {
+            OrgBottomBar(
+                navController,
+                navController.currentBackStackEntryAsState().value?.destination?.route
+            )
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(
             modifier = Modifier.padding(innerPadding).fillMaxSize()
         ) {
+            // Header showing if data was filtered from summary
+            if (initialDate != null || (initialName != null && initialName != "All")) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Filtered from Summary",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = buildString {
+                                    if (initialDate != null) append("Date: $initialDate")
+                                    if (initialName != null && initialName != "All") {
+                                        if (isNotEmpty()) append(" | ")
+                                        append("Name: $initialName")
+                                    }
+                                },
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                // Clear filters
+                                selectedName = "All"
+                                selectedDate = defaultDateString
+                            }
+                        ) {
+                            Text("Clear Filters", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
             // Filters Row
             Row(
                 Modifier
