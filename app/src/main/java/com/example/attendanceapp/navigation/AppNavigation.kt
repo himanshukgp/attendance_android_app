@@ -15,6 +15,7 @@ import com.example.attendanceapp.screens.OrgDashboardScreen
 import com.example.attendanceapp.screens.OrgLoginScreen
 import com.example.attendanceapp.screens.OrgSummaryScreen
 import com.example.attendanceapp.screens.OnboardingScreen
+import java.net.URLDecoder
 
 @Composable
 fun AppNavigation(startDestination: String) {
@@ -49,5 +50,42 @@ fun AppNavigation(startDestination: String) {
         composable("orgAttendance") { OrgAttendanceScreen(navController) }
         composable("orgSummary") { OrgSummaryScreen(navController) }
         // Add other screens here...
+        // New route with parameters
+        composable(
+            route = "orgAttendance?date={date}&name={name}",
+            arguments = listOf(
+                navArgument("date") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("name") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val date = backStackEntry.arguments?.getString("date")?.let {
+                try {
+                    URLDecoder.decode(it, "UTF-8")
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            val name = backStackEntry.arguments?.getString("name")?.let {
+                try {
+                    URLDecoder.decode(it, "UTF-8")
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            OrgAttendanceScreen(
+                navController = navController,
+                initialDate = date,
+                initialName = name
+            )
+        }
     }
 }
