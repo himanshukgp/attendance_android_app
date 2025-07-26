@@ -44,7 +44,11 @@ data class DayAttendanceInfo(
     val date: LocalDate,
     val color: Color,
     val progress: Float,
-    val tooltip: String
+    val tooltip: String,
+    val presentCount: Int = 0,
+    val absentCount: Int = 0,
+    val halfDayCount: Int = 0,
+    val totalCount: Int = 0
 )
 
 // --- Helper: converts Any (ti/to) safely to Double ---
@@ -65,18 +69,14 @@ fun buildOrgCalendarMap(
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     val dateMap = mutableMapOf<LocalDate, DayAttendanceInfo>()
 
-    // Group employees by date - adapt this based on your OrgEmployee structure
+    // Group employees by date
     val groupedByDate = empList.groupBy { emp ->
-        // You may need to adjust this based on your actual OrgEmployee date field
-        // Common field names: date, attendanceDate, workDate, etc.
         try {
-            // Try to get date field using reflection or direct property access
             emp.javaClass.getDeclaredField("date").let { field ->
                 field.isAccessible = true
                 field.get(emp) as? String ?: ""
             }
         } catch (e: Exception) {
-            // Fallback - you may need to replace this with your actual date field
             ""
         }
     }
@@ -90,22 +90,53 @@ fun buildOrgCalendarMap(
         } ?: continue
 
         if (filterName == null || filterName == "All") {
-            val presentCount = empOnThisDay.count { emp ->
-                // Adapt this based on your OrgEmployee attendance field
+            // Count all attendance types
+            var presentCount = 0
+            var absentCount = 0
+            var halfDayCount = 0
+
+            empOnThisDay.forEach { emp ->
                 try {
                     val markedField = emp.javaClass.getDeclaredField("marked")
                     markedField.isAccessible = true
                     val marked = markedField.get(emp) as? String ?: ""
-                    marked.equals("P", true)
+                    when (marked.uppercase()) {
+                        "P" -> presentCount++
+                        "A" -> absentCount++
+                        "H" -> halfDayCount++
+                    }
                 } catch (e: Exception) {
-                    false
+                    // Handle error
                 }
             }
+
             val total = empCount.takeIf { it > 0 } ?: empOnThisDay.size
-            val color = Color(0xFF4CAF50) // always green when all selected
-            val progress = presentCount.toFloat() / total.coerceAtLeast(1)
-            val tooltip = "Present: $presentCount, Total: $total"
-            dateMap[date] = DayAttendanceInfo(date, color, progress.coerceIn(0f,1f), tooltip)
+
+            // Determine dominant color and progress based on highest count
+            val maxCount = maxOf(presentCount, absentCount, halfDayCount)
+            val color = when {
+                presentCount == maxCount -> Color(0xFF4CAF50) // Green for present
+                absentCount == maxCount -> Color(0xFFF44336)  // Red for absent
+                halfDayCount == maxCount -> Color(0xFFFFC107) // Yellow for half day
+                else -> Color.Gray
+            }
+
+            // Progress based on present + half of half-day vs total
+            val effectivePresent = presentCount + (halfDayCount * 0.5f)
+            val progress = (effectivePresent / total.coerceAtLeast(1)).toFloat()
+
+            val tooltip = "Present: $presentCount, Absent: $absentCount, Half Day: $halfDayCount, Total: $total"
+
+            dateMap[date] = DayAttendanceInfo(
+                date = date,
+                color = color,
+                progress = progress.coerceIn(0f, 1f),
+                tooltip = tooltip,
+                presentCount = presentCount,
+                absentCount = absentCount,
+                halfDayCount = halfDayCount,
+                totalCount = total
+            )
         } else {
             val emp = empOnThisDay.find { employee ->
                 try {
@@ -127,7 +158,7 @@ fun buildOrgCalendarMap(
                 ""
             }
 
-            val statusColor = when (marked) {
+            val statusColor = when (marked.uppercase()) {
                 "P" -> Color(0xFF4CAF50)    // Green Present
                 "A" -> Color(0xFFF44336)    // Red Absent
                 "H" -> Color(0xFFFFC107)    // Yellow Halfday
@@ -143,7 +174,6 @@ fun buildOrgCalendarMap(
                 val shifts = shiftsField.get(emp) as? Map<String, Any>
                 if (shifts != null) {
                     for (shift in shifts.values) {
-                        // Try to extract ti and to values from shift object
                         try {
                             val tiField = shift.javaClass.getDeclaredField("ti")
                             tiField.isAccessible = true
@@ -163,9 +193,24 @@ fun buildOrgCalendarMap(
 
             val denom = tiSum + toSum
             val progress = if (denom > 0.0) (tiSum / denom).toFloat() else 0f
-            val tooltip = "Worked: %.2f hrs, Break: %.2f hrs".format(tiSum, toSum)
+            val workTooltip = "Worked: %.2f hrs, Break: %.2f hrs".format(tiSum, toSum)
+            val statusTooltip = when (marked.uppercase()) {
+                "P" -> "Present - $workTooltip"
+                "A" -> "Absent"
+                "H" -> "Half Day - $workTooltip"
+                else -> "No Data"
+            }
 
-            dateMap[date] = DayAttendanceInfo(date, statusColor, progress.coerceIn(0f,1f), tooltip)
+            dateMap[date] = DayAttendanceInfo(
+                date = date,
+                color = statusColor,
+                progress = progress.coerceIn(0f, 1f),
+                tooltip = statusTooltip,
+                presentCount = if (marked.equals("P", true)) 1 else 0,
+                absentCount = if (marked.equals("A", true)) 1 else 0,
+                halfDayCount = if (marked.equals("H", true)) 1 else 0,
+                totalCount = 1
+            )
         }
     }
     return dateMap
@@ -297,7 +342,8 @@ fun OrgSummaryScreen(navController: NavController) {
                     text = info.tooltip,
                     color = Color.DarkGray,
                     fontSize = 15.sp,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    textAlign = TextAlign.Center
                 )
             }
 
@@ -308,12 +354,22 @@ fun OrgSummaryScreen(navController: NavController) {
 
 @Composable
 fun SummaryInfo(label: String, value: Int, color: Color = Color.Gray) {
-    Text(
-        text = "$label: $value",
-        fontSize = 22.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = color
-    )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "$value",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.Gray
+        )
+    }
 }
 
 @Composable
