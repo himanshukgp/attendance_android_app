@@ -61,21 +61,6 @@ class MainActivity : ComponentActivity() {
             // All permissions granted, proceed as normal
         }
 
-        // Prompt user to disable battery optimization for this app
-        val pm = getSystemService(POWER_SERVICE) as PowerManager
-        val packageName = packageName
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !pm.isIgnoringBatteryOptimizations(packageName)) {
-            AlertDialog.Builder(this)
-                .setTitle("Disable Battery Optimization")
-                .setMessage("To ensure background logging works reliably, please disable battery optimization for AttendanceApp.")
-                .setPositiveButton("Open Settings") { _, _ ->
-                    val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                    startActivity(intent)
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-
         val prefs = getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
         val onboardingComplete = prefs.getBoolean("onboarding_complete", false)
         val onboardingJustCompleted = prefs.getBoolean("onboarding_just_completed", false)
