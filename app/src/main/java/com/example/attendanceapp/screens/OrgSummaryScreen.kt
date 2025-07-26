@@ -32,6 +32,7 @@ import com.example.attendanceapp.data.DataStoreManager
 import com.example.attendanceapp.data.OrgDataManager
 import com.example.attendanceapp.api.OrgEmployee
 import kotlinx.coroutines.launch
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -345,6 +346,32 @@ fun OrgSummaryScreen(navController: NavController) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     textAlign = TextAlign.Center
                 )
+
+                // View Details Button
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        // Format the selected date for navigation
+                        val formattedDate = selectedDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                        val encodedDate = URLEncoder.encode(formattedDate, "UTF-8")
+                        val encodedName = URLEncoder.encode(filterName, "UTF-8")
+
+                        // Navigate to OrgAttendanceScreen with date and name parameters
+                        navController.navigate("orgAttendance?date=$encodedDate&name=$encodedName") {
+                            popUpTo("orgSummary")
+                            launchSingleTop = true
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth(0.7f)
+                        .height(48.dp)
+                ) {
+                    Text(
+                        text = "View Details",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
             }
 
             Spacer(Modifier.height(18.dp))
