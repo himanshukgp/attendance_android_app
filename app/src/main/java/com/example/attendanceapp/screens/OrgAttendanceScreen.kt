@@ -22,7 +22,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -32,9 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
@@ -64,7 +61,10 @@ import com.example.attendanceapp.data.OrgDataManager
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TopAppBar
 import com.example.attendanceapp.data.DataStoreManager
 import androidx.compose.runtime.rememberCoroutineScope
 import com.example.attendanceapp.api.OrgLoginRequest
@@ -77,7 +77,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateMapOf
 import java.time.LocalDate
+import java.time.Month
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 
 
 // Data classes for employee data
@@ -98,6 +100,14 @@ data class ShiftData(
     val ti: Double,
     val to: Double
 )
+sealed class DateFilter {
+    data class SingleDay(val day: String): DateFilter() // "dd/MM/yyyy"
+    data class WholeMonth(val month: Int, val year: Int): DateFilter() // 1..12, yyyy
+}
+private fun defaultDateFilter(): DateFilter {
+    val today = LocalDate.now()
+    return DateFilter.SingleDay(today.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")))
+}
 
 data class EmployeeMaster(val name: String, val phoneNumber: String)
 
@@ -114,62 +124,60 @@ fun OrgAttendanceScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val tempMarkedAttendance = remember { mutableStateMapOf<String, String>() }
 
-    // Filter states - initialize with passed parameters
+    // --- FILTER state ---
     var selectedName by remember { mutableStateOf(initialName ?: "All") }
     var showCalendar by remember { mutableStateOf(false) }
+    val defaultDate = remember { defaultDateFilter() }
 
-    val today = remember { Date() }
-    val defaultDateString = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(today)
-    var selectedDate by remember { mutableStateOf<String?>(initialDate ?: defaultDateString) }
-
-    // Effect to handle parameter changes (useful for navigation back/forth)
-    LaunchedEffect(initialDate, initialName) {
-        if (initialDate != null) {
-            selectedDate = initialDate
-        }
-        if (initialName != null) {
-            selectedName = initialName
-        }
+    // --- DateFilter logic ---
+    var dateFilter by remember {
+        mutableStateOf<DateFilter>(
+            initialDate?.let { DateFilter.SingleDay(it) } ?: defaultDate
+        )
+    }
+    // Update filter when navigation parameters change
+    LaunchedEffect(initialDate) {
+        if (initialDate != null) dateFilter = DateFilter.SingleDay(initialDate)
+    }
+    LaunchedEffect(initialName) {
+        if (initialName != null) selectedName = initialName
     }
 
-    // Build master employee list from all data (distinct by phoneNumber)
     val allEmployeesMasterList = remember(orgData) {
         orgData?.employeeList?.distinctBy { it.phoneNumber }?.map {
             EmployeeMaster(name = it.name, phoneNumber = it.phoneNumber)
         } ?: emptyList()
     }
-
-    // Filter master list by selected employee name if needed
     val filteredEmployees = remember(allEmployeesMasterList, selectedName) {
         if (selectedName == "All") allEmployeesMasterList
         else allEmployeesMasterList.filter { it.name == selectedName }
     }
 
-    // Attendance records for selected date
-    val attendanceForDate = remember(orgData, selectedDate) {
-        if (selectedDate == null) emptyList()
-        else orgData?.employeeList?.filter { it.date == selectedDate } ?: emptyList()
-    }
-    // Map for quick lookup by phone + date id (id is phone_date)
-    val attendanceIdSet = remember(attendanceForDate) { attendanceForDate.map { it.id }.toSet() }
+    fun parseDateToMonthYear(date: String): Pair<Int, Int>? = try {
+        val parts = date.split("/")
+        if (parts.size == 3)
+            Pair(parts[1].toInt(), parts[2].toInt())
+        else null
+    } catch (_: Exception) { null }
 
-    // Filtering employeeData for displaying already marked attendance cards (filtered & dated)
-    val employeeData = remember(attendanceForDate, selectedName) {
-        val filteredData = if (selectedName == "All") {
-            attendanceForDate
-        } else {
-            attendanceForDate.filter { employee ->
-                try {
-                    val nameField = employee.javaClass.getDeclaredField("name")
-                    nameField.isAccessible = true
-                    val name = nameField.get(employee) as? String ?: ""
-                    name.equals(selectedName, ignoreCase = true)
-                } catch (e: Exception) {
-                    false
-                }
-            }
+    // Attendance filter for selected date/month
+    val attendanceForFilter = remember(orgData, dateFilter) {
+        when (dateFilter) {
+            is DateFilter.SingleDay ->
+                orgData?.employeeList?.filter { it.date == (dateFilter as DateFilter.SingleDay).day } ?: emptyList()
+            is DateFilter.WholeMonth -> orgData?.employeeList?.filter {
+                parseDateToMonthYear(it.date)?.let { (month, year) ->
+                    month == (dateFilter as DateFilter.WholeMonth).month && year == (dateFilter as DateFilter.WholeMonth).year
+                } ?: false
+            } ?: emptyList()
         }
+    }
+    val attendanceIdSet = remember(attendanceForFilter) { attendanceForFilter.map { it.id }.toSet() }
 
+    val employeeData = remember(attendanceForFilter, selectedName) {
+        val filteredData = if (selectedName == "All") {
+            attendanceForFilter
+        } else attendanceForFilter.filter { it.name.equals(selectedName, ignoreCase = true) }
         filteredData.map { employee ->
             EmployeeAttendance(
                 id = employee.id,
@@ -191,8 +199,19 @@ fun OrgAttendanceScreen(
         }
     }
 
-    // Refresh data method to call your backend
-    val refreshData = {
+    // Unmarked employees (only for single day)
+    val unmarkedEmployees = remember(filteredEmployees, attendanceIdSet, dateFilter) {
+        if (dateFilter is DateFilter.SingleDay) {
+            val dateStr = (dateFilter as DateFilter.SingleDay).day
+            filteredEmployees.filter { emp ->
+                val idForDate = "${emp.phoneNumber}_$dateStr"
+                idForDate !in attendanceIdSet
+            }
+        } else emptyList()
+    }
+
+    // --- Refresh function ---
+    val refreshData: () -> Unit = {
         coroutineScope.launch {
             try {
                 val phone = DataStoreManager.getOrgPhone(context)
@@ -205,24 +224,15 @@ fun OrgAttendanceScreen(
                     val orgJson = Gson().toJson(response)
                     DataStoreManager.saveOrg(context, orgJson)
                 }
-            } catch (_: Exception) {
-                // handle errors if needed
-            }
+            } catch (_: Exception) { }
         }
     }
-
     LaunchedEffect(Unit) { refreshData() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        "Attendance",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp
-                    )
-                },
+                title = { Text("Attendance", fontWeight = FontWeight.Bold, fontSize = 22.sp) },
                 actions = {
                     Text(
                         text = if (DataStoreManager.getWorkerToggleState(context)) "ON" else "OFF",
@@ -231,9 +241,7 @@ fun OrgAttendanceScreen(
                     )
                     Switch(
                         checked = DataStoreManager.getWorkerToggleState(context),
-                        onCheckedChange = {
-                            com.example.attendanceapp.data.LogStatusManager.toggleLogging(context, it)
-                        },
+                        onCheckedChange = { com.example.attendanceapp.data.LogStatusManager.toggleLogging(context, it) },
                         modifier = Modifier.height(20.dp)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -251,11 +259,16 @@ fun OrgAttendanceScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
+
         Column(
             modifier = Modifier.padding(innerPadding).fillMaxSize()
         ) {
-            // Header showing if data was filtered from summary
-            if (initialDate != null || (initialName != null && initialName != "All")) {
+
+            // ---- FILTERED from Summary/Explicit filter banner ----
+            val isFiltered = remember(selectedName, dateFilter) {
+                selectedName != "All" || dateFilter != defaultDate
+            }
+            if (isFiltered) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -280,10 +293,18 @@ fun OrgAttendanceScreen(
                             )
                             Text(
                                 text = buildString {
-                                    if (initialDate != null) append("Date: $initialDate")
-                                    if (initialName != null && initialName != "All") {
+                                    when (dateFilter) {
+                                        is DateFilter.SingleDay -> append("Date: ${(dateFilter as DateFilter.SingleDay).day}")
+                                        is DateFilter.WholeMonth -> {
+                                            val m = Month.of((dateFilter as DateFilter.WholeMonth).month)
+                                            append(
+                                                "Month: ${m.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${(dateFilter as DateFilter.WholeMonth).year}"
+                                            )
+                                        }
+                                    }
+                                    if (selectedName != "All") {
                                         if (isNotEmpty()) append(" | ")
-                                        append("Name: $initialName")
+                                        append("Name: $selectedName")
                                     }
                                 },
                                 fontSize = 14.sp,
@@ -292,9 +313,8 @@ fun OrgAttendanceScreen(
                         }
                         TextButton(
                             onClick = {
-                                // Clear filters
                                 selectedName = "All"
-                                selectedDate = defaultDateString
+                                dateFilter = defaultDate
                             }
                         ) {
                             Text("Clear Filters", fontSize = 12.sp)
@@ -303,7 +323,7 @@ fun OrgAttendanceScreen(
                 }
             }
 
-            // Filters Row
+            // ---- FILTER ROW ----
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -324,38 +344,38 @@ fun OrgAttendanceScreen(
                 ) {
                     Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date", modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(text = selectedDate ?: "All", fontSize = 11.sp)
+                    val filterLabel =
+                        when (val df = dateFilter) {
+                            is DateFilter.SingleDay -> df.day
+                            is DateFilter.WholeMonth -> {
+                                val monthStr = Month.of(df.month).getDisplayName(TextStyle.SHORT, Locale.getDefault()).replaceFirstChar { it.uppercase() }
+                                "$monthStr ${df.year.toString().takeLast(2)}"
+                            }
+                        }
+                    Text(text = filterLabel, fontSize = 11.sp)
                 }
             }
             Spacer(Modifier.height(8.dp))
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
-            ) {
-                // Show attendance cards already marked
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                 items(employeeData) { employee ->
                     EmployeeAttendanceCardStyled(
                         employee = employee,
-                        snackbarHostState = snackbarHostState
+                        snackbarHostState = snackbarHostState,
+                        refreshData = refreshData
                     )
                     Spacer(Modifier.height(18.dp))
                 }
-
-                // Show MarkAttendanceCard for employees without attendance on the selected date
-                if (selectedDate != null) {
-                    val unmarkedEmployees = filteredEmployees.filter { emp ->
-                        val idForDate = "${emp.phoneNumber}_$selectedDate"
-                        idForDate !in attendanceIdSet
-                    }
-
+                if (dateFilter is DateFilter.SingleDay) {
+                    val selectedDateStr = (dateFilter as DateFilter.SingleDay).day
                     items(unmarkedEmployees) { emp ->
-                        val markId = "${emp.phoneNumber}_$selectedDate"
+                        val markId = "${emp.phoneNumber}_$selectedDateStr"
                         val tempStatus = tempMarkedAttendance[markId]
                         MarkAttendanceCard(
                             employeeId = markId,
                             name = emp.name,
                             phoneNumber = emp.phoneNumber,
-                            date = selectedDate!!,
+                            date = selectedDateStr,
                             alreadyMarked = tempStatus != null,
                             markedStatus = tempStatus,
                             onMark = { status ->
@@ -366,7 +386,7 @@ fun OrgAttendanceScreen(
                                             val response = markAttendanceApiCall(
                                                 phone = phone,
                                                 employeeId = markId,
-                                                date = selectedDate!!,
+                                                date = selectedDateStr,
                                                 status = status
                                             )
                                             if (response.isSuccessful) {
@@ -389,12 +409,12 @@ fun OrgAttendanceScreen(
             }
         }
 
-        // Show calendar when toggled
+        // ---- Calendar dialog ----
         if (showCalendar) {
-            CalendarView(
-                selectedDate = selectedDate,
-                onDateSelected = { date ->
-                    selectedDate = date
+            CalendarViewWithMonth(
+                selectedFilter = dateFilter,
+                onDateFilterSelected = {
+                    dateFilter = it
                     showCalendar = false
                 },
                 onDismiss = { showCalendar = false }
@@ -572,28 +592,22 @@ fun EmployeeAttendanceCardStyled(
     }
 }
 
-// -------- Inline WEEK-VIEW CALENDAR COMPOSABLE --------
 @Composable
-fun CalendarView(
-    selectedDate: String?,
-    onDateSelected: (String?) -> Unit, // Changed to accept null for "All dates"
+fun CalendarViewWithMonth(
+    selectedFilter: DateFilter,
+    onDateFilterSelected: (DateFilter) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val today = remember { LocalDate.now() }
+    val today = LocalDate.now()
     val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
-    val selected = remember(selectedDate) {
-        selectedDate?.let {
-            runCatching { LocalDate.parse(it, formatter) }.getOrNull() ?: today
-        } ?: today
-    }
-
-    var currentMonth by remember { mutableStateOf(selected.withDayOfMonth(1)) }
-
-    // Generate calendar grid for the current month
-    val calendarDays = remember(currentMonth) {
-        generateCalendarDays(currentMonth)
-    }
+    val selectedDay = (selectedFilter as? DateFilter.SingleDay)?.day
+    val selectedLocalDate = selectedDay?.let { runCatching { LocalDate.parse(it, formatter) }.getOrNull() } ?: today
+    var currentMonth by remember { mutableStateOf(selectedLocalDate.withDayOfMonth(1)) }
+    val isAllThisMonth = selectedFilter is DateFilter.WholeMonth
+            && selectedFilter.month == currentMonth.monthValue
+            && selectedFilter.year == currentMonth.year
+    val calendarDays = remember(currentMonth) { generateCalendarDays(currentMonth) }
 
     Surface(
         color = MaterialTheme.colorScheme.background.copy(alpha = 0.9f),
@@ -610,21 +624,21 @@ fun CalendarView(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Close button top-right
+            // Close button
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) {
-                    Text("Close")
-                }
+                TextButton(onClick = onDismiss) { Text("Close") }
             }
 
-            // "All dates" checkbox option
+            // All dates of this month
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp)
-                    .clickable { onDateSelected(null) }
+                    .clickable {
+                        onDateFilterSelected(DateFilter.WholeMonth(currentMonth.monthValue, currentMonth.year))
+                    }
                     .background(
-                        if (selectedDate == null) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                        if (isAllThisMonth) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
                         else Color.Transparent,
                         RoundedCornerShape(8.dp)
                     )
@@ -632,18 +646,20 @@ fun CalendarView(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 androidx.compose.material3.Checkbox(
-                    checked = selectedDate == null,
-                    onCheckedChange = { if (it) onDateSelected(null) }
+                    checked = isAllThisMonth,
+                    onCheckedChange = {
+                        if (it) onDateFilterSelected(DateFilter.WholeMonth(currentMonth.monthValue, currentMonth.year))
+                    }
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "All dates",
+                    text = "${currentMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${currentMonth.year}",
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (selectedDate == null) FontWeight.Bold else FontWeight.Normal
+                    fontWeight = if (isAllThisMonth) FontWeight.Bold else FontWeight.Normal
                 )
             }
 
-            // Month/Year header with navigation
+            // Month nav
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -652,21 +668,17 @@ fun CalendarView(
                 IconButton(onClick = { currentMonth = currentMonth.minusMonths(1) }) {
                     Text("‹", fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 }
-
                 Text(
                     text = currentMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
-
                 IconButton(onClick = { currentMonth = currentMonth.plusMonths(1) }) {
                     Text("›", fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 }
             }
-
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Weekday headers
+            // Days of week
             Row(modifier = Modifier.fillMaxWidth()) {
                 val dayNames = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
                 dayNames.forEach { day ->
@@ -680,7 +692,6 @@ fun CalendarView(
                     )
                 }
             }
-
             Spacer(modifier = Modifier.height(8.dp))
 
             // Calendar grid
@@ -688,19 +699,49 @@ fun CalendarView(
                 items(calendarDays.chunked(7)) { week ->
                     Row(modifier = Modifier.fillMaxWidth()) {
                         week.forEach { dateInfo ->
-                            CalendarDayCell(
-                                dateInfo = dateInfo,
-                                selectedDate = selected,
-                                today = today,
-                                currentMonth = currentMonth,
-                                onDateSelected = { date ->
-                                    onDateSelected(date.format(formatter))
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                            val isSelected = (selectedFilter as? DateFilter.SingleDay)?.let {
+                                runCatching { LocalDate.parse(it.day, formatter) }.getOrNull() == dateInfo.date
+                            } == true && !isAllThisMonth
+                            val isToday = today == dateInfo.date
+                            val isCurrentMonth = dateInfo.date.month == currentMonth.month && dateInfo.date.year == currentMonth.year
 
-                        // Fill remaining cells if the last week has fewer than 7 days
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .aspectRatio(1f)
+                                    .padding(2.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when {
+                                            isSelected -> MaterialTheme.colorScheme.primary
+                                            isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                            else -> Color.Transparent
+                                        }
+                                    )
+                                    .clickable {
+                                        onDateFilterSelected(
+                                            DateFilter.SingleDay(dateInfo.date.format(formatter))
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = dateInfo.date.dayOfMonth.toString(),
+                                    fontSize = 14.sp,
+                                    fontWeight = when {
+                                        isSelected -> FontWeight.Bold
+                                        isToday -> FontWeight.SemiBold
+                                        else -> FontWeight.Normal
+                                    },
+                                    color = when {
+                                        isSelected -> MaterialTheme.colorScheme.onPrimary
+                                        !isCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                        isToday -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+                        }
                         repeat(7 - week.size) {
                             Spacer(modifier = Modifier.weight(1f))
                         }
@@ -709,83 +750,22 @@ fun CalendarView(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Quick date selection buttons
+            // Quick Date buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 TextButton(
-                    onClick = {
-                        onDateSelected(today.format(formatter))
-                    }
-                ) {
-                    Text("Today")
-                }
-
+                    onClick = { onDateFilterSelected(DateFilter.SingleDay(today.format(formatter))) }
+                ) { Text("Today") }
                 TextButton(
-                    onClick = {
-                        onDateSelected(today.minusDays(1).format(formatter))
-                    }
-                ) {
-                    Text("Yesterday")
-                }
-
+                    onClick = { onDateFilterSelected(DateFilter.SingleDay(today.minusDays(1).format(formatter))) }
+                ) { Text("Yesterday") }
                 TextButton(
-                    onClick = {
-                        onDateSelected(today.plusDays(1).format(formatter))
-                    }
-                ) {
-                    Text("Tomorrow")
-                }
+                    onClick = { onDateFilterSelected(DateFilter.SingleDay(today.plusDays(1).format(formatter))) }
+                ) { Text("Tomorrow") }
             }
         }
-    }
-}
-
-@Composable
-fun CalendarDayCell(
-    dateInfo: CalendarDateInfo,
-    selectedDate: LocalDate,
-    today: LocalDate,
-    currentMonth: LocalDate,
-    onDateSelected: (LocalDate) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val isSelected = dateInfo.date == selectedDate
-    val isToday = dateInfo.date == today
-    val isCurrentMonth = dateInfo.date.month == currentMonth.month && dateInfo.date.year == currentMonth.year
-
-    Box(
-        modifier = modifier
-            .aspectRatio(1f)
-            .padding(2.dp)
-            .clip(CircleShape)
-            .background(
-                when {
-                    isSelected -> MaterialTheme.colorScheme.primary
-                    isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                    else -> Color.Transparent
-                }
-            )
-            .clickable { onDateSelected(dateInfo.date) },
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = dateInfo.date.dayOfMonth.toString(),
-            fontSize = 14.sp,
-            fontWeight = when {
-                isSelected -> FontWeight.Bold
-                isToday -> FontWeight.SemiBold
-                else -> FontWeight.Normal
-            },
-            color = when {
-                isSelected -> MaterialTheme.colorScheme.onPrimary
-                !isCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                isToday -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.onSurface
-            }
-        )
     }
 }
 
@@ -797,24 +777,10 @@ data class CalendarDateInfo(
 private fun generateCalendarDays(currentMonth: LocalDate): List<CalendarDateInfo> {
     val firstDayOfMonth = currentMonth.withDayOfMonth(1)
     val lastDayOfMonth = currentMonth.withDayOfMonth(currentMonth.lengthOfMonth())
-
-    // Find the first Sunday of the calendar grid
-    val firstCalendarDay = firstDayOfMonth.let { firstDay ->
-        val dayOfWeek = firstDay.dayOfWeek.value % 7 // Convert to 0=Sunday, 1=Monday, etc.
-        firstDay.minusDays(dayOfWeek.toLong())
-    }
-
-    // Find the last Saturday of the calendar grid
-    val lastCalendarDay = lastDayOfMonth.let { lastDay ->
-        val dayOfWeek = lastDay.dayOfWeek.value % 7
-        val daysToAdd = (6 - dayOfWeek).toLong()
-        lastDay.plusDays(daysToAdd)
-    }
-
-    // Generate all days in the calendar grid
+    val firstCalendarDay = firstDayOfMonth.minusDays(((firstDayOfMonth.dayOfWeek.value % 7).toLong()))
+    val lastCalendarDay = lastDayOfMonth.plusDays((6 - (lastDayOfMonth.dayOfWeek.value % 7)).toLong())
     val calendarDays = mutableListOf<CalendarDateInfo>()
     var currentDate = firstCalendarDay
-
     while (!currentDate.isAfter(lastCalendarDay)) {
         calendarDays.add(
             CalendarDateInfo(
@@ -824,7 +790,6 @@ private fun generateCalendarDays(currentMonth: LocalDate): List<CalendarDateInfo
         )
         currentDate = currentDate.plusDays(1)
     }
-
     return calendarDays
 }
 
@@ -985,31 +950,6 @@ fun ShiftDetailsTable(shifts: Map<String, ShiftData>) {
                 Spacer(modifier = Modifier.height(4.dp))
             }
         }
-    }
-}
-
-@Composable
-fun StatusIndicator(status: String) {
-    val (backgroundColor, textColor) = when (status) {
-        "P" -> Color(0xFF4CAF50) to Color.White // Green for Present
-        "A" -> Color(0xFFF44336) to Color.White // Red for Absent
-        "H" -> Color(0xFFFF9800) to Color.White // Orange for Half day
-        else -> Color.Gray to Color.White
-    }
-
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(backgroundColor),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = status,
-            color = textColor,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold
-        )
     }
 }
 
