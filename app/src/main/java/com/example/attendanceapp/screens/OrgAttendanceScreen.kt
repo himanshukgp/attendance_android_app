@@ -334,7 +334,10 @@ fun OrgAttendanceScreen(
             ) {
                 // Show attendance cards already marked
                 items(employeeData) { employee ->
-                    EmployeeAttendanceCardStyled(employee = employee)
+                    EmployeeAttendanceCardStyled(
+                        employee = employee,
+                        snackbarHostState = snackbarHostState
+                    )
                     Spacer(Modifier.height(18.dp))
                 }
 
@@ -397,6 +400,175 @@ fun OrgAttendanceScreen(
                 onDismiss = { showCalendar = false }
             )
         }
+    }
+}
+
+@Composable
+fun EmployeeAttendanceCardStyled(
+    employee: EmployeeAttendance,
+    refreshData: () -> Unit = {},
+    snackbarHostState: SnackbarHostState
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+    var showDialog by remember { mutableStateOf<String?>(null) }
+    var currentAttendanceStatus by remember { mutableStateOf(employee.marked) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val disabledColor = Color(0xFFBDBDBD) // Material design disabled gray
+
+    // Update currentAttendanceStatus when employee.marked changes (useful for data refresh)
+    LaunchedEffect(employee.marked) {
+        currentAttendanceStatus = employee.marked
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF5F5F5), RoundedCornerShape(18.dp))
+            .clickable { isExpanded = !isExpanded },
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            // Basic info (always visible)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = employee.name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Show all three circles with current status highlighted
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Present circle
+                    StatusCircle(
+                        letter = "P",
+                        color = if (currentAttendanceStatus == "P")
+                            Color(0xFF4CAF50) else disabledColor,
+                        onClick = {
+                            if (currentAttendanceStatus != "P") {
+                                showDialog = "P"
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Absent circle
+                    StatusCircle(
+                        letter = "A",
+                        color = if (currentAttendanceStatus == "A")
+                            Color(0xFFF44336) else disabledColor,
+                        onClick = {
+                            if (currentAttendanceStatus != "A") {
+                                showDialog = "A"
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Holiday circle
+                    StatusCircle(
+                        letter = "H",
+                        color = if (currentAttendanceStatus == "H")
+                            Color(0xFFFF9800) else disabledColor,
+                        onClick = {
+                            if (currentAttendanceStatus != "H") {
+                                showDialog = "H"
+                            }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Login Time: ${employee.loginTime}",
+                fontSize = 13.sp,
+                color = Color(0xFF757575),
+                fontWeight = FontWeight.Normal
+            )
+            Text(
+                text = "Total Time: ${employee.totalTime}",
+                fontSize = 13.sp,
+                color = Color(0xFF757575),
+                fontWeight = FontWeight.Normal
+            )
+            Text(
+                text = "Current Status: ${statusText(currentAttendanceStatus)} (tap other circles to change)",
+                fontSize = 12.sp,
+                color = Color(0xFF757575),
+                fontWeight = FontWeight.Normal,
+                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+            TimelineBarStyled(shifts = employee.shifts)
+
+            // Expanded content
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(16.dp))
+                ShiftDetailsTable(shifts = employee.shifts)
+            }
+        }
+    }
+
+    // Confirmation dialog for changing attendance
+    showDialog?.let { newStatus ->
+        AlertDialog(
+            onDismissRequest = { showDialog = null },
+            title = { Text("Change Attendance") },
+            text = {
+                Text(
+                    "Change ${employee.name}'s attendance from ${statusText(currentAttendanceStatus)} to ${statusText(newStatus)} for ${employee.date}?"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            try {
+                                val phone = DataStoreManager.getOrgPhone(context)
+                                if (phone != null) {
+                                    val response = markAttendanceApiCall(
+                                        phone = phone,
+                                        employeeId = employee.id,
+                                        date = employee.date,
+                                        status = newStatus
+                                    )
+                                    if (response.isSuccessful) {
+                                        // Update the local state immediately
+                                        currentAttendanceStatus = newStatus
+                                        snackbarHostState.showSnackbar("Updated attendance for ${employee.name}")
+                                        // Refresh data to show updated status
+                                        refreshData()
+                                    } else {
+                                        snackbarHostState.showSnackbar("Failed to update attendance")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                snackbarHostState.showSnackbar("Error: ${e.localizedMessage ?: "Unknown error"}")
+                            }
+                        }
+                        showDialog = null
+                    }
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -583,7 +755,7 @@ fun CalendarDayCell(
     val isSelected = dateInfo.date == selectedDate
     val isToday = dateInfo.date == today
     val isCurrentMonth = dateInfo.date.month == currentMonth.month && dateInfo.date.year == currentMonth.year
-    
+
     Box(
         modifier = modifier
             .aspectRatio(1f)
@@ -625,24 +797,24 @@ data class CalendarDateInfo(
 private fun generateCalendarDays(currentMonth: LocalDate): List<CalendarDateInfo> {
     val firstDayOfMonth = currentMonth.withDayOfMonth(1)
     val lastDayOfMonth = currentMonth.withDayOfMonth(currentMonth.lengthOfMonth())
-    
+
     // Find the first Sunday of the calendar grid
     val firstCalendarDay = firstDayOfMonth.let { firstDay ->
         val dayOfWeek = firstDay.dayOfWeek.value % 7 // Convert to 0=Sunday, 1=Monday, etc.
         firstDay.minusDays(dayOfWeek.toLong())
     }
-    
+
     // Find the last Saturday of the calendar grid
     val lastCalendarDay = lastDayOfMonth.let { lastDay ->
         val dayOfWeek = lastDay.dayOfWeek.value % 7
         val daysToAdd = (6 - dayOfWeek).toLong()
         lastDay.plusDays(daysToAdd)
     }
-    
+
     // Generate all days in the calendar grid
     val calendarDays = mutableListOf<CalendarDateInfo>()
     var currentDate = firstCalendarDay
-    
+
     while (!currentDate.isAfter(lastCalendarDay)) {
         calendarDays.add(
             CalendarDateInfo(
@@ -652,7 +824,7 @@ private fun generateCalendarDays(currentMonth: LocalDate): List<CalendarDateInfo
         )
         currentDate = currentDate.plusDays(1)
     }
-    
+
     return calendarDays
 }
 
@@ -697,58 +869,6 @@ fun FilterLabelValue(label: String, value: String, options: List<String>, onValu
                         }
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-fun EmployeeAttendanceCardStyled(employee: EmployeeAttendance) {
-    var isExpanded by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(0xFFF5F5F5), RoundedCornerShape(18.dp))
-            .clickable { isExpanded = !isExpanded },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(18.dp)
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            // Basic info (always visible)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = employee.name,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = Color.Black
-                )
-                StatusIndicator(status = employee.marked)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Login Time: ${employee.loginTime}",
-                fontSize = 13.sp,
-                color = Color(0xFF757575),
-                fontWeight = FontWeight.Normal
-            )
-            Text(
-                text = "Total Time: ${employee.totalTime}",
-                fontSize = 13.sp,
-                color = Color(0xFF757575),
-                fontWeight = FontWeight.Normal
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-            TimelineBarStyled(shifts = employee.shifts)
-
-            // Expanded content
-            if (isExpanded) {
-                Spacer(modifier = Modifier.height(16.dp))
-                ShiftDetailsTable(shifts = employee.shifts)
             }
         }
     }
@@ -927,14 +1047,6 @@ fun TimelineBarStyled(shifts: Map<String, ShiftData>) {
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun OrgAttendanceScreenPreview() {
-    val navController = rememberNavController()
-    OrgAttendanceScreen(navController = navController)
-}
-
-// Card for marking attendance for all employees
 @Composable
 fun MarkAttendanceCard(
     employeeId: String,
@@ -1085,7 +1197,6 @@ fun statusText(status: String): String {
     }
 }
 
-
 // Add mark attendance API call
 suspend fun markAttendanceApiCall(
     phone: String,
@@ -1103,4 +1214,11 @@ suspend fun markAttendanceApiCall(
         val api = com.example.attendanceapp.api.NetworkModule.apiService
         api.markAttendance(body)
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun OrgAttendanceScreenPreview() {
+    val navController = rememberNavController()
+    OrgAttendanceScreen(navController = navController)
 }
