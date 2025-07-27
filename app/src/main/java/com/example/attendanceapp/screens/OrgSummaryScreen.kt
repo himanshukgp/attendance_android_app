@@ -115,12 +115,13 @@ fun buildOrgCalendarMap(
 
             // Determine dominant color and progress based on highest count
             val maxCount = maxOf(presentCount, absentCount, halfDayCount)
-            val color = when {
-                presentCount == maxCount -> Color(0xFF4CAF50) // Green for present
-                absentCount == maxCount -> Color(0xFFF44336)  // Red for absent
-                halfDayCount == maxCount -> Color(0xFFFFC107) // Yellow for half day
-                else -> Color.Gray
-            }
+//            val color = when {
+//                presentCount == maxCount -> Color(0xFF4CAF50) // Green for present
+//                absentCount == maxCount -> Color(0xFFF44336)  // Red for absent
+//                halfDayCount == maxCount -> Color(0xFFFFC107) // Yellow for half day
+//                else -> Color.Gray
+//            }
+            val color = Color(0xFF4CAF50)
 
             // Progress based on present + half of half-day vs total
             val effectivePresent = presentCount + (halfDayCount * 0.5f)
