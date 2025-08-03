@@ -112,35 +112,6 @@ fun OrgDashboardScreen(navController: NavController) {
     var employees by remember { mutableStateOf<List<Employee>>(emptyList()) }
     var filteredEmployees by remember { mutableStateOf<List<Pair<Employee, Boolean>>>(emptyList()) }
 
-    // Load data when screen first loads - get existing org data
-    LaunchedEffect(Unit) {
-        Log.d("OrgDashboardScreen", "Screen loaded, loading existing org data...")
-        val existingOrgData = OrgDataManager.getOrgData()
-        if (existingOrgData != null) {
-            Log.d("OrgDashboardScreen", "Found existing org data: ${Gson().toJson(existingOrgData)}")
-            employees = parseEmployeeData(existingOrgData)
-        } else {
-            Log.d("OrgDashboardScreen", "No existing org data found")
-        }
-    }
-
-    // Update live time every minute
-    LaunchedEffect(isLiveTime) {
-        if (isLiveTime) {
-            while (isLiveTime) {
-                selectedTime = getCurrentTime()
-                kotlinx.coroutines.delay(60000) // Update every minute
-            }
-        }
-    }
-
-    // Filter employees when date, time, or employee data changes
-    LaunchedEffect(selectedDate, selectedTime, employees) {
-        Log.d("OrgDashboardScreen", "Filtering employees for date: $selectedDate, time: $selectedTime")
-        filteredEmployees = filterEmployeesByDateTime(employees, selectedDate, selectedTime)
-        Log.d("OrgDashboardScreen", "Filtered result: ${filteredEmployees.size} employees")
-    }
-
     val refreshData = {
         coroutineScope.launch {
             try {
@@ -169,6 +140,44 @@ fun OrgDashboardScreen(navController: NavController) {
             } catch (e: Exception) {
                 Log.e("OrgDashboardScreen", "Failed to refresh organization data: ${e.message}", e)
             }
+        }
+    }
+
+    // Load data when screen first loads - get existing org data
+    LaunchedEffect(Unit) {
+        Log.d("OrgDashboardScreen", "Screen loaded, loading existing org data...")
+        val existingOrgData = OrgDataManager.getOrgData()
+        if (existingOrgData != null) {
+            Log.d("OrgDashboardScreen", "Found existing org data: ${Gson().toJson(existingOrgData)}")
+            employees = parseEmployeeData(existingOrgData)
+        } else {
+            Log.d("OrgDashboardScreen", "No existing org data found")
+        }
+    }
+
+    // Update live time every minute and refresh data
+    LaunchedEffect(isLiveTime) {
+        if (isLiveTime) {
+            while (isLiveTime) {
+                selectedTime = getCurrentTime()
+                selectedDate = getCurrentDate() // Add this line
+                // Call API every minute to refresh employee data
+                refreshData()
+                kotlinx.coroutines.delay(60000) // Wait 1 minute
+            }
+        }
+    }
+
+    // Filter employees when date, time, or employee data changes
+    LaunchedEffect(selectedDate, selectedTime, employees) {
+        Log.d("OrgDashboardScreen", "Filtering employees for date: $selectedDate, time: $selectedTime")
+        filteredEmployees = filterEmployeesByDateTime(employees, selectedDate, selectedTime)
+        Log.d("OrgDashboardScreen", "Filtered result: ${filteredEmployees.size} employees")
+    }
+
+    LaunchedEffect(selectedDate) {
+        if (isLiveTime && selectedDate != getCurrentDate()) {
+            isLiveTime = false
         }
     }
 
@@ -227,7 +236,12 @@ fun OrgDashboardScreen(navController: NavController) {
                 ) {
                     Icon(Icons.Default.AccessTime, contentDescription = "Select Time", modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (isLiveTime) "LIVE: $selectedTime" else selectedTime)
+                    Text(
+                        if (isLiveTime && selectedDate == getCurrentDate())
+                            "LIVE: $selectedTime"
+                        else
+                            selectedTime
+                    )
                 }
 
                 DropdownMenu(
@@ -248,6 +262,7 @@ fun OrgDashboardScreen(navController: NavController) {
                             showTimeMenu = false
                             isLiveTime = true
                             selectedTime = getCurrentTime()
+                            selectedDate = getCurrentDate() // Add this line to update date to current
                         }
                     )
                 }
@@ -296,7 +311,15 @@ fun OrgDashboardScreen(navController: NavController) {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let {
                         val date = Date(it)
-                        selectedDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(date)
+                        val newSelectedDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(date)
+                        selectedDate = newSelectedDate
+
+                        // Check if the new date is different from current date
+                        val currentDate = getCurrentDate()
+                        if (newSelectedDate != currentDate && isLiveTime) {
+                            // If date is changed from current and we're in live mode, disable live mode
+                            isLiveTime = false
+                        }
                     }
                     showDatePicker = false
                 }) {
