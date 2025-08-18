@@ -18,6 +18,14 @@ import com.example.attendanceapp.MainActivity
 import java.text.SimpleDateFormat
 import java.util.Date
 
+/**
+ * A foreground service that periodically logs the device's status and updates notifications.
+ *
+ * This service runs in the foreground to ensure it's not killed by the system. It uses a [Handler]
+ * to schedule periodic calls to [LogStatusManager.makeImmediateLogStatusCall] and updates
+ * a notification to show the last sync time. It also handles creating and managing notification
+ * channels for different types of notifications.
+ */
 class LogStatusForegroundService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val intervalMillis = 1 * 60 * 1000L // 1 minute
@@ -34,6 +42,18 @@ class LogStatusForegroundService : Service() {
         }
     }
 
+    /**
+     * Called when the service is started.
+     *
+     * This method starts the foreground service with a notification, resets the `isStopped` flag,
+     * and posts the [runnable] to start periodic logging.
+     *
+     * @param intent The Intent supplied to [android.content.Context.startService].
+     * @param flags Additional data about this start request.
+     * @param startId A unique integer representing this specific request to start.
+     * @return The return value indicates what semantics the system should use for the service's
+     *         current started state.
+     */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(1, createNotification())
         isStopped = false
@@ -41,6 +61,13 @@ class LogStatusForegroundService : Service() {
         return START_STICKY
     }
 
+    /**
+     * Called when the service is being destroyed.
+     *
+     * This method sets the `isStopped` flag to true, removes the [runnable] from the handler's
+     * message queue, shows a notification indicating the service has stopped, and calls the
+     * superclass's `onDestroy` method.
+     */
     override fun onDestroy() {
         isStopped = true
         handler.removeCallbacks(runnable)
@@ -48,8 +75,23 @@ class LogStatusForegroundService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * Returns the communication channel to the service.
+     *
+     * This service does not provide binding, so this method returns null.
+     *
+     * @param intent The Intent that was used to bind to this service.
+     * @return Return an IBinder through which clients can call on to the service.
+     */
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Called by the system when the service is first created.
+     *
+     * This method calls the superclass's `onCreate` method and creates notification channels
+     * for the background service and location tracking if the device is running Android Oreo
+     * or higher.
+     */
     override fun onCreate() {
         super.onCreate()
         // Create notification channels for background service and location tracking
@@ -148,4 +190,4 @@ class LogStatusForegroundService : Service() {
             .build()
         notificationManager.notify(3, notification)
     }
-} 
+}

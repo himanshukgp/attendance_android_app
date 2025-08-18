@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import com.example.attendanceapp.data.mapper.toEntity
 
 object LogStatusManager {
     fun toggleLogging(context: Context, enabled: Boolean) {
@@ -71,6 +72,14 @@ object LogStatusManager {
                     phone = phone
                 )
                 Log.d("LogStatusManager", "Making immediate log_status API call: $request")
+
+                // NEW: save to local DB first (Room)
+                val repo = com.example.attendanceapp.data.repo.LogStatusRepository.get(context)
+                val localId = repo.savePending(
+                    request.toEntity()   // ✅ extension call
+                )
+
+                // existing
                 val response = NetworkModule.apiService.logStatus(request)
                 if (response.isSuccessful) {
                     Log.d("LogStatusManager", "Immediate log_status call successful")

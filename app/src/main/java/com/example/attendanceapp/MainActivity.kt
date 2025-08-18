@@ -31,7 +31,18 @@ import androidx.core.content.ContextCompat
 import android.app.AlertDialog
 import android.os.PowerManager
 
+/**
+ * Main activity for the Attendance App.
+ * Handles permission requests, navigation, and resumes logging service if enabled.
+ */
 class MainActivity : ComponentActivity() {
+    /**
+     * Called when the activity is first created.
+     * This is where you should do all of your normal static set up: create views, bind data to lists, etc.
+     * This method also requests necessary permissions and sets up the initial screen based on onboarding status and user data.
+     *
+     * @param savedInstanceState If the activity is being re-initialized after previously being shut down then this Bundle contains the data it most recently supplied in onSaveInstanceState(Bundle). Otherwise it is null.
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -113,6 +124,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Callback for the result from requesting permissions.
+     * This method is invoked for every call on requestPermissions(String[], int).
+     *
+     * @param requestCode The request code passed in requestPermissions(String[], int).
+     * @param permissions The requested permissions. Never null.
+     * @param grantResults The grant results for the corresponding permissions which is either PackageManager.PERMISSION_GRANTED or PackageManager.PERMISSION_DENIED. Never null.
+     */
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 1001) {
